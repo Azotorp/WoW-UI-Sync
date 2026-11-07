@@ -56,10 +56,11 @@ Supersedes: 00X §Y, … (or "nothing")
 |---|---|---|
 | 001 | Initial design draft | Planned |
 | 002 | Cross-platform support, home and local servers, AI working rules | Planned |
+| 003 | Path-based WoW detection, large audio-heavy profiles, resumable transfers | Planned |
 
 **Code state:** nothing implemented yet. The repo contains only this file.
 
-**Next step:** merge 001 + 002 into a net spec, then build Phase 1 (001 §18) with the 002 changes included.
+**Next step:** merge 001 + 002 + 003 into a net spec, then build Phase 1 (001 §18) with the 002 and 003 changes included.
 
 ---
 
@@ -180,6 +181,8 @@ Control payloads are zstd-compressed JSON. Data payloads are raw binary.
 
 **Core message types (initial):** `HELLO`, `AUTH`, `STATUS_REQ/RESP`, `PUSH_BEGIN`, `PUSH_NEED` (server tells client which hashes it lacks), `PACK_UPLOAD`, `FILE_UPLOAD_CHUNK`, `PUSH_COMMIT`, `PULL_BEGIN`, `PULL_PLAN`, `PACK_DOWNLOAD`, `FILE_DOWNLOAD_CHUNK`, `HISTORY_REQ/RESP`, `RESTORE`, `ERROR`, `PING`.
 
+> ⚠️ Message types extended by 003 §3 (resume support).
+
 ### 7. Hashing and the local hash cache
 
 - SHA-256 per file.
@@ -226,7 +229,7 @@ The client stores, per profile: the **base** snapshot id and the base manifest.
 - **Push over newer server**: if head ≠ base, warn before pushing ("The server has newer changes from Laptop. Pushing will replace them. They stay in history. Continue?").
 - **WoW is running**: WoW rewrites SavedVariables on logout and reload. Block pull and warn on push if a WoW process is running. Process names are a configurable list (defaults: `Wow.exe`, `WowClassic.exe`, `WowClassicT.exe`, `WowT.exe`, `WowB.exe`). Detected with `ProcessHandle.allProcesses()`.
 
-> ⚠️ WoW-running detection extended by 002 §5 (Linux/Wine and macOS matching).
+> ⚠️ WoW-running detection superseded by 003 §1 (path-based, per profile). 002 §5 name matching becomes the fallback.
 
 ### 9. Transfer: packs, compression, parallelism
 
@@ -241,6 +244,8 @@ The client stores, per profile: the **base** snapshot id and the base manifest.
 **Integrity:** the receiver verifies SHA-256 of every file before committing it. A mismatch retries that file once, then fails the sync without committing a snapshot.
 
 **Progress:** the client shows files and bytes done/total, current speed, and compressed vs original size.
+
+> ⚠️ Extended by 003 §2–§3 (audio handling, resumable transfers, ETA).
 
 ### 10. Server storage
 
@@ -271,6 +276,8 @@ Snapshot metadata: id, profile, device id, device nickname, action (`push`, `res
 **Writes are atomic:** objects are written to `tmp/` and renamed into place. A snapshot only becomes head after every object it references exists and is verified.
 
 **Server-side security:** every incoming path is normalized and rejected if it is absolute, contains `..`, or escapes the profile root. Profile and user names are restricted to `[A-Za-z0-9_-]`.
+
+> ⚠️ "zstd-compressed at rest" refined by 003 §2 (already-compressed files stored raw).
 
 ### 11. Client local backups (undo for pulls)
 
@@ -364,6 +371,8 @@ dist/
 2. **Phase 2:** history UI, restore any version, undo button polish, Sync All, delta sync.
 3. **Phase 3:** first release zips, README polish, then decide on .exe.
 
+> ⚠️ Phase 1 scope extended by 003 §3 (resumable transfers are Phase 1).
+
 ### 19. Legal and naming
 
 - Name: **WoW UI Sync** (repo `wow-ui-sync`).
@@ -424,6 +433,8 @@ Both jars run on Windows, Linux, and macOS, in any combination (e.g. Windows cli
 
 ### 5. WoW-running check per OS (extends 001 §8)
 
+> ⚠️ Superseded by 003 §1. Name matching below is now only the fallback.
+
 - Windows: match the process executable name against the configured list.
 - Linux: WoW runs through Wine, Proton, or Lutris, so also match the configured names anywhere in the process command line (e.g. `…/Wow.exe`).
 - macOS: add `World of Warcraft` and `World of Warcraft Classic` to the default list.
@@ -452,3 +463,61 @@ Both jars run on Windows, Linux, and macOS, in any combination (e.g. Windows cli
 
 1. Open questions 1–5 from Entry 001 are still unresolved.
 2. Should the client remember multiple servers (e.g. home and remote) and switch between them, or is one server per client enough for v1?
+
+---
+
+## Entry 003 — 2026-11-07 — Path-based WoW detection, large audio-heavy profiles, resumable transfers
+Status: Planned
+Supersedes: 001 §8 WoW-running check and 002 §5 (name matching becomes the fallback). Extends 001 §6, §9, §10, §18.
+
+### Summary
+
+Real-world numbers from the dev machine: the `_forever_` profile (AddOns + WTF) is about **3 GB**, mostly **long sound files**, with Lua and SavedVariables making up most of the file count but little of the size. The design is tuned for that: audio is never recompressed, the large-file path gets parallel chunked streaming, and transfers must survive a dropped connection without starting over, since the first push of 3 GB can take a while on a home upload. WoW-running detection switches to checking where a process was launched from, which is reliable across all game versions and needs no exe name list.
+
+Resolves 001 open question 1 (process names no longer required) and question 2 (size known; exact file count still welcome).
+
+### 1. WoW-running check: path-based, per profile
+
+- For each running process, read its executable path (`ProcessHandle.Info.command()`). If the path is inside the profile's flavor folder (e.g. `C:\Games\World of Warcraft\_forever_\`), that profile's WoW is running.
+- Comparison is case-insensitive and uses normalized absolute paths.
+- **Per profile:** only the profile whose game is running is blocked. Playing Anniversary does not block syncing Forever.
+- **Fallback:** if a process's path is unavailable (e.g. permissions, or Wine where the visible process is the Wine loader), use the 002 §5 name matching, but only when the match also appears in the process command line together with the flavor folder name. If neither method can tell, show "Couldn't check whether WoW is running" as a warning, not a block.
+- Note: Windows Task Manager's Processes tab shows the display name "World of Warcraft", not the exe name. The exe name is not needed with this approach.
+
+### 2. Audio-heavy profiles
+
+- Treat these extensions as already compressed: never compress in transit or at rest: `.ogg`, `.mp3`, `.m4a`, `.aac`, `.flac`, `.opus`, `.wav` is NOT in this list (raw PCM compresses somewhat; let the 5% rule decide), plus the image and archive types from 001 §9.
+- Objects for those types are stored raw in the object store (the object header records the codec, so the reader knows). Refines 001 §10 "zstd-compressed at rest".
+- Large-file threshold stays 4 MB; sound files above it use chunked streaming across data connections, so several long tracks upload in parallel.
+- Dedup still applies: identical sound files shared by multiple addons or profiles are stored and transferred once.
+- Expected behavior: the first push is the big one; afterwards, audio almost never changes, so normal syncs only move Lua and SavedVariables and finish in seconds.
+
+### 3. Resumable transfers (now Phase 1)
+
+- **Completed files are never re-sent.** Because storage is content-addressed, a retried push naturally skips every object the server already has (001 §8 push step 2).
+- **Partial large files resume.** The server keeps partially received large objects in `tmp/partial/<sha256>` with the byte count received. New messages: `RESUME_QUERY` (client asks which hashes have partial data) and `RESUME_OFFSET` (server replies with offsets). The client continues from that offset. Partial files older than 7 days are cleaned up.
+- **Pulls resume too.** The client keeps partial downloads in `state/<profile>/partial/` and asks the server for the remaining range.
+- **Automatic reconnect:** if a data connection drops, the client reconnects with backoff (1, 2, 5, 10, 30 s) and continues. After 5 failed attempts, the sync pauses with a "Resume" button. No snapshot is committed until everything is verified.
+- **Progress for big transfers:** show an ETA, and on the first push a note such as "First sync uploads everything (about 3 GB). Later syncs only send changes."
+
+### 4. Tuning defaults (revisit after first test)
+
+- Data connections: 6 (unchanged).
+- Large-file chunk size: 1 MB (unchanged); consider 4 MB if throughput is limited by per-chunk overhead.
+- Server disk: README notes that the server needs roughly the profile size per profile, plus whatever changes between retained snapshots. Audio-heavy profiles cost little extra per snapshot thanks to dedup.
+
+### Changes
+
+- [ ] `client`: path-based WoW-running detection per profile (§1), with the name-matching fallback from 002 §5.
+- [ ] `common`: extension list for already-compressed types (§2); object header records codec (`raw`, `zstd`, `deflate`).
+- [ ] `server`: store already-compressed objects raw (§2).
+- [ ] `common` + `server` + `client`: `RESUME_QUERY` / `RESUME_OFFSET` messages; server partial object store with 7-day cleanup (§3).
+- [ ] `client`: partial downloads, reconnect with backoff, pause/Resume button (§3).
+- [ ] `client`: ETA and first-sync note in the progress area (§3).
+- [ ] README: server disk space note (§4).
+
+### Open questions
+
+1. Rough file count of `_forever_` AddOns + WTF (right-click → Properties shows "Contains: N files"), to tune pack size and threads.
+2. Approximate home upload speed on the desktop and download speed on the laptop, to sanity-check the first-sync time estimate.
+3. Remaining from 001: questions 3 (textures), 4 (folder deletions), 5 (port). From 002: question 2 (multiple servers).
