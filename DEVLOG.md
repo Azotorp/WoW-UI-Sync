@@ -4,17 +4,68 @@ WoW UI Sync backs up and syncs your entire World of Warcraft UI setup (addons, a
 
 Open source under GPLv3. Not affiliated with or endorsed by Blizzard Entertainment.
 
-## How this log works
+---
 
-- This file is the project's design record and the working brief for anyone (human or Claude Code) building the project.
-- Entries are **append-only** and numbered. The newest entry is at the bottom.
-- A later entry can override an earlier decision. When it does, it says so explicitly ("Supersedes 001 §X").
-- Before working on the code, read the whole log top to bottom. The current design is the sum of all entries.
-- Each entry ends with **Open questions** that the next entry should resolve.
+## Rules for working from this log (read first)
+
+This file is both the design record and the work queue. It is written so an AI agent (Claude Code) or a human can pick up exactly where the last session stopped without redoing or undoing work.
+
+### Reading order
+
+1. Read the **Status board** below. It says what is already built and what is next.
+2. Read every entry marked `Planned` or `In progress`, in order.
+3. Entries marked `Implemented` are context only. Their content already exists in the code. Read them for background, but do not re-implement them.
+
+### Resolve before you code
+
+- Before writing any code, merge all `Planned` and `In progress` entries into one **net spec**. Where a later entry overrides an earlier one, only the later version is built.
+- Never implement a section that a later entry supersedes, then change it afterwards. Superseded sections carry an inline marker: `> ⚠️ Superseded by 00X §Y`.
+- If two entries conflict and neither says which wins, the later entry wins. If that still seems wrong, stop and ask instead of guessing.
+
+### When code already exists
+
+- Treat new entries as **patches**: change only what the entry describes. Each entry from 002 onward has a **Changes** checklist listing the concrete work.
+- Check the code before trusting the Status board. If they disagree, the code is the truth; fix the board.
+
+### Updating this log
+
+- Entries are append-only. Do not rewrite earlier entries.
+- The only edits allowed to earlier entries are: adding `> ⚠️ Superseded by …` markers, ticking `Changes` checkboxes, and updating an entry's `Status` line.
+- After implementing work, in the same commit: tick the boxes, set the entry status (`Implemented in <short commit sha>` once complete), and update the Status board.
+- New design decisions go in a new entry, never into the code alone.
+
+### Entry template
+
+```
+## Entry NNN — YYYY-MM-DD — Title
+Status: Planned | In progress | Implemented in <sha>
+Supersedes: 00X §Y, … (or "nothing")
+
+### Summary
+### Decisions
+### Changes
+- [ ] concrete task
+### Open questions
+```
+
+---
+
+## Status board
+
+| Entry | Title | Status |
+|---|---|---|
+| 001 | Initial design draft | Planned |
+| 002 | Cross-platform support, home and local servers, AI working rules | Planned |
+
+**Code state:** nothing implemented yet. The repo contains only this file.
+
+**Next step:** merge 001 + 002 into a net spec, then build Phase 1 (001 §18) with the 002 changes included.
 
 ---
 
 ## Entry 001 — 2026-11-07 — Initial design draft
+Status: Planned
+Supersedes: nothing
 
 ### 1. Goal
 
@@ -28,6 +79,8 @@ Clone a player's WoW UI setup to any other PC, and keep a revision history so mi
 Typical use: play on the desktop, push. Later on the laptop, pull. The app makes it obvious which direction is needed and protects against pushing or pulling the wrong way.
 
 ### 2. Decisions made in this entry
+
+> ⚠️ Superseded in part by 002 §1 (client and server are cross-platform: Windows, Linux, macOS).
 
 | Topic | Decision |
 |---|---|
@@ -74,6 +127,8 @@ Per profile, relative to the flavor folder:
 - `Cache/`, `Logs/`, `Errors/`, `Screenshots/`: never synced (outside the two roots anyway; listed for safety).
 - `Interface/AddOns/**/.git/**`, `**/Thumbs.db`, `**/desktop.ini`.
 
+> ⚠️ Superseded by 002 §4 (path casing rules apply on every OS; `.DS_Store` added to exclusions).
+
 Paths are always stored with forward slashes and compared case-insensitively on Windows. The original casing is preserved when writing.
 
 ### 5. Architecture
@@ -97,6 +152,8 @@ wow-ui-sync/
 ├── README.md
 └── LICENSE                 GPLv3
 ```
+
+> ⚠️ `scripts/` extended by 002 §3 (adds `start.bat` and `stop.bat`).
 
 **Division of work:** the client hashes its local files (only it can see its disk) and sends a compact manifest. The server owns everything else: comparing manifests, deciding what to request or send, storing files, building snapshots, retention, and restore.
 
@@ -168,6 +225,8 @@ The client stores, per profile: the **base** snapshot id and the base manifest.
 - **Pull with local changes**: if local differs from base, warn before pulling ("This PC has changes that are not on the server. Pulling will overwrite them. A local backup will be made. Continue?").
 - **Push over newer server**: if head ≠ base, warn before pushing ("The server has newer changes from Laptop. Pushing will replace them. They stay in history. Continue?").
 - **WoW is running**: WoW rewrites SavedVariables on logout and reload. Block pull and warn on push if a WoW process is running. Process names are a configurable list (defaults: `Wow.exe`, `WowClassic.exe`, `WowClassicT.exe`, `WowT.exe`, `WowB.exe`). Detected with `ProcessHandle.allProcesses()`.
+
+> ⚠️ WoW-running detection extended by 002 §5 (Linux/Wine and macOS matching).
 
 ### 9. Transfer: packs, compression, parallelism
 
@@ -256,6 +315,8 @@ Settings:
 
 **Server:** `data/server.json`. Port, bind address, list of users with tokens, retention count, max connections per session, log level. On first run the server creates a default config and one user with a generated token, and prints the token and certificate fingerprint to the console.
 
+> ⚠️ Defaults for host and bind address set by 002 §2.
+
 ### 15. Running the server
 
 `scripts/start.sh`:
@@ -269,6 +330,8 @@ The server console accepts simple commands: `stop`, `status`, `users`, `adduser 
 Optional `scripts/wow-ui-sync.service` for systemd with `Restart=on-failure`, for people who prefer starting on boot.
 
 Setup notes for the README: install `openjdk-21-jre-headless`, open the port (`sudo ufw allow 47811/tcp`), run `start.sh`.
+
+> ⚠️ Extended by 002 §3 (Windows `.bat` scripts, `screen` fallback, no root needed).
 
 ### 16. Build, CI, and releases
 
@@ -315,3 +378,77 @@ dist/
 3. Whether `.blp` and `.tga` addon textures compress well enough with zstd to be worth compressing.
 4. Should a push also sync deletions of whole addon folders by default (current design: yes, since history makes it undoable)?
 5. Default port `47811`: fine, or pick another?
+
+---
+
+## Entry 002 — 2026-11-07 — Cross-platform support, home and local servers, AI working rules
+Status: Planned
+Supersedes: 001 §2 (platform targets, in part), 001 §4 (path casing rule). Extends 001 §8, §14, §15.
+
+### Summary
+
+Both jars run on Windows, Linux, and macOS, in any combination (e.g. Windows client with a Linux server, Linux client with a Windows server, or both on one machine). The only thing a user installs is Java 21. The server can run on a home PC without root. Also adds the "Rules for working from this log" section and the Status board at the top of this file.
+
+### 1. Platforms
+
+- **Client and server both support Windows, Linux, and macOS** (Intel and Apple Silicon). Supersedes "Windows is the primary target" in 001 §2; Windows remains the main test platform.
+- **Only requirement: Java 21.** The sync protocol and TLS are our own code plus the JDK. No FTP server, system services, or OS packages are needed on either side.
+- `zstd-jni` bundles native libraries for Windows (x64, arm64), Linux (x64, arm64), and macOS (x64, arm64) inside the jar and loads the right one automatically. The shaded jars must keep these native resources (do not let the Shade plugin strip them).
+- **Fallback:** if the zstd native library fails to load on an unusual platform, fall back to the JDK's built-in Deflater/Inflater (gzip-style) and log a warning. The compression codec is negotiated in `HELLO`, so a client and server on different codecs still work.
+
+### 2. Home, LAN, and same-machine servers
+
+- The server does not need root. Port 47811 is above 1024, so any normal user can run it.
+- **Server bind address default: `0.0.0.0`** (all network interfaces). The server does not need to know its own host name. Setting it to `127.0.0.1` makes it reachable only from the same machine.
+- **Client host default: `localhost`.** A client and server on the same machine work with no configuration beyond the token.
+- **Same-machine first-run convenience:** when the client connects to `localhost` and the server's `data/` folder is next to the client jar (common for a home setup), the client offers to read the generated token from `data/server.json` automatically.
+- For another PC on the home network: enter the server's LAN IP. For access from outside the home: forward TCP 47811 on the router. The README covers both.
+- On first run, the server console prints its LAN IP addresses alongside the token and certificate fingerprint, so the user knows what to type into clients.
+
+### 3. Running the server on each OS
+
+- `scripts/start.sh` (Linux and macOS): unchanged from 001 §15, except that if `screen` is not installed it prints a one-line hint and runs the same restart loop in the current terminal.
+- New `scripts/start.bat` (Windows): runs the server in its own console window with the same restart loop and visible countdown, and honors the same stop flag.
+- New `scripts/stop.bat` (Windows): writes the stop flag and asks the server to shut down cleanly.
+- The stop flag is a file (`data/stop.flag`) so all scripts behave the same on every OS.
+- The systemd unit stays Linux-only and optional.
+
+### 4. Paths across operating systems (supersedes 001 §4 casing rule)
+
+- **Paths are compared case-insensitively on every OS.** WoW and addons assume Windows behavior, so `WTF/Account/ABC` and `WTF/Account/abc` are the same file everywhere.
+- The manifest stores the casing of the side that pushed. On a case-sensitive file system (Linux, some macOS volumes), when a pull writes a file whose name differs only in case from an existing one, rename the existing file to the manifest casing instead of creating a duplicate.
+- If a push finds two local files whose paths differ only by case, the push fails before transferring anything and lists them.
+- Paths containing characters that are invalid on Windows (`< > : " | ? *`, trailing dots or spaces) are skipped with a warning at push time, so they never break a Windows pull.
+- File contents are bytes. Never convert line endings or text encodings.
+- Add `**/.DS_Store` to the default exclusions.
+
+### 5. WoW-running check per OS (extends 001 §8)
+
+- Windows: match the process executable name against the configured list.
+- Linux: WoW runs through Wine, Proton, or Lutris, so also match the configured names anywhere in the process command line (e.g. `…/Wow.exe`).
+- macOS: add `World of Warcraft` and `World of Warcraft Classic` to the default list.
+- If process info is unavailable, the check is skipped with a note in the log, not treated as an error.
+
+### 6. Install root per OS (extends 001 §4)
+
+- Windows: no fixed default; the user picks the folder (the dev machine uses `C:\Games\World of Warcraft`).
+- macOS: suggest `/Applications/World of Warcraft`.
+- Linux: no default, since it depends on the Wine prefix; the user picks the folder.
+
+### Changes
+
+- [ ] Parent POM: target Java 21; Shade config keeps `zstd-jni` native resources for all platforms.
+- [ ] `common`: codec abstraction (zstd, deflate fallback) with negotiation in `HELLO`.
+- [ ] `common`: path normalization utilities implementing §4 (case-insensitive keys, invalid-name checks, case collision detection).
+- [ ] `server`: bind address default `0.0.0.0`; print LAN IPs, token, and fingerprint on first run.
+- [ ] `client`: host default `localhost`; same-machine token auto-detect.
+- [ ] `client`: OS-specific WoW process matching (§5) and install root suggestions (§6).
+- [ ] `client`: case-only rename handling on pull (§4).
+- [ ] `scripts/start.sh`: `screen` fallback. New `scripts/start.bat` and `scripts/stop.bat`. Stop flag at `data/stop.flag`.
+- [ ] Default exclusions include `**/.DS_Store`.
+- [ ] README: platform requirements, home/LAN/remote setup, port forwarding note.
+
+### Open questions
+
+1. Open questions 1–5 from Entry 001 are still unresolved.
+2. Should the client remember multiple servers (e.g. home and remote) and switch between them, or is one server per client enough for v1?
