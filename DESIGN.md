@@ -20,7 +20,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 
 | Phase | Title | Status |
 |---|---|---|
-| 1 | Project skeleton and CI | Not started |
+| 1 | Project skeleton and CI | Done |
 | 2 | Common core: models, paths, hashing, codecs | Not started |
 | 3 | Common core: packs, objects, protocol | Not started |
 | 4 | Server foundation: data folder, database, install scripts | Not started |
@@ -445,9 +445,9 @@ Delta sync of large changed files (FastCDC chunking), enabling Anniversary/Era, 
 Each phase: compile-clean, `dist/` produced, checklist ticked, status table updated, one commit.
 
 ### Phase 1 — Project skeleton and CI
-- [ ] Parent `pom.xml` (Java 21, dependency management, Shade config preserving native libs, copy-to-`dist/` step), modules `common`, `server`, `client` with `Main` stubs.
-- [ ] `.gitignore`, `LICENSE` (official GPLv3 text verbatim), `README.md` stub with disclaimer.
-- [ ] `.github/workflows/build.yml`.
+- [x] Parent `pom.xml` (Java 21, dependency management, Shade config preserving native libs, copy-to-`dist/` step), modules `common`, `server`, `client` with `Main` stubs.
+- [x] `.gitignore`, `LICENSE` (official GPLv3 text verbatim), `README.md` stub with disclaimer.
+- [x] `.github/workflows/build.yml`.
 - Done when: `mvn -B clean package` produces both runnable stub jars in `dist/`.
 
 ### Phase 2 — Common core: models, paths, hashing, codecs

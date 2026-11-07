@@ -1,0 +1,13 @@
+target/
+dist/
+*.class
+*.log
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+.DS_Store
+Thumbs.db
+wow-ui-sync-data/
