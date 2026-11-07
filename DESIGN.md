@@ -21,7 +21,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 | Phase | Title | Status |
 |---|---|---|
 | 1 | Project skeleton and CI | Done |
-| 2 | Common core: models, paths, hashing, codecs | Not started |
+| 2 | Common core: models, paths, hashing, codecs | Done |
 | 3 | Common core: packs, objects, protocol | Not started |
 | 4 | Server foundation: data folder, database, install scripts | Not started |
 | 5 | Server networking, login, accounts, invites | Not started |
@@ -451,12 +451,12 @@ Each phase: compile-clean, `dist/` produced, checklist ticked, status table upda
 - Done when: `mvn -B clean package` produces both runnable stub jars in `dist/`.
 
 ### Phase 2 — Common core: models, paths, hashing, codecs
-- [ ] Path normalization, case-insensitive keys, invalid-name checks, case-collision detection, exclusion globs, loose-file rule (§14).
-- [ ] Manifest model, JSON (Jackson) with zstd wrapper, fingerprint (§11).
-- [ ] Parallel hashing utilities and hash-cache model.
-- [ ] Codec abstraction: zstd, deflate fallback, raw; negotiation helper.
-- [ ] Compression category table and cached sample test (§11.5).
-- [ ] Profile allowlist (`forever`) and profile id rules (§13).
+- [x] Path normalization, case-insensitive keys, invalid-name checks, case-collision detection, exclusion globs, loose-file rule (§14).
+- [x] Manifest model, JSON (Jackson) with zstd wrapper, fingerprint (§11).
+- [x] Parallel hashing utilities and hash-cache model.
+- [x] Codec abstraction: zstd, deflate fallback, raw; negotiation helper.
+- [x] Compression category table and cached sample test (§11.5).
+- [x] Profile allowlist (`forever`) and profile id rules (§13).
 
 ### Phase 3 — Common core: packs, objects, protocol
 - [ ] Pack writer/reader (compressed and raw kinds, sorted index).
