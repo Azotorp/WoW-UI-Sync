@@ -29,7 +29,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 | 7 | Client foundation: data, Connections, login, main window | Done |
 | 8 | Client scanning, addon grouping, local manager | Done |
 | 9 | Client sync: status, push, selective pull | Done |
-| 10 | Client admin: accounts, invites, password reset | Not started |
+| 10 | Client admin: accounts, invites, password reset | Done |
 | 11 | Release packaging and docs | Not started |
 | 12 | Test pass (manual, by the owner) | Not started |
 
@@ -502,9 +502,9 @@ Each phase: compile-clean, `dist/` produced, checklist ticked, status table upda
 - [x] Selective pull: source manifest, `.toc` fetch, selection window, modes, plan, review, backup, download, apply, rescan note (§12).
 
 ### Phase 10 — Client admin
-- [ ] Accounts panel: list, create, credentials, email, quotas, caps, delete (§17.5).
-- [ ] Invites: create, copy, list, revoke; Join with invite code flow (§8).
-- [ ] My account; Forgot password flow (§7).
+- [x] Accounts panel: list, create, credentials, email, quotas, caps, delete (§17.5).
+- [x] Invites: create, copy, list, revoke; Join with invite code flow (§8).
+- [x] My account; Forgot password flow (§7).
 
 ### Phase 11 — Release packaging and docs
 - [ ] `release.yml` and zip contents (§19).

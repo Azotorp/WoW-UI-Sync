@@ -77,6 +77,23 @@ public final class ClientApp {
         fire();
     }
 
+    /** Replaces the accessible-account list after account changes. */
+    public void updateAccessible(List<Msg.AccountInfo> accounts) {
+        ServerConnection c = connection;
+        if (c == null || c.login() == null) return;
+        Msg.LoginOk l = c.login();
+        c.updateLogin(new Msg.LoginOk(l.accountId(), l.username(), l.role(), l.sessionId(), accounts, l.maxDataConnections()));
+        Msg.AccountInfo keep = null;
+        for (Msg.AccountInfo a : accounts) {
+            if (targetAccount != null && a.id().equals(targetAccount.id())) keep = a;
+        }
+        if (keep == null) {
+            for (Msg.AccountInfo a : accounts) if (a.id().equals(l.accountId())) keep = a;
+        }
+        targetAccount = keep;
+        fire();
+    }
+
     public void disconnect() {
         setConnection(null, null);
     }

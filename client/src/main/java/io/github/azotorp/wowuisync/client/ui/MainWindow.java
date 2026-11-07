@@ -329,11 +329,15 @@ public final class MainWindow extends JFrame {
     }
 
     void onAccounts() {
-        Dialogs.info(this, "Account management is not available yet.");
+        if (!app.connected()) return;
+        AccountsDialog.show(this, app);
+        updateFromApp();
     }
 
     void onMyAccount() {
-        Dialogs.info(this, "My account is not available yet.");
+        if (!app.connected()) return;
+        MyAccountDialog.show(this, app);
+        updateFromApp();
     }
 
     static boolean same(Object a, Object b) {
