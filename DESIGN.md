@@ -20,17 +20,17 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 
 | Phase | Title | Status |
 |---|---|---|
-| 1 | Project skeleton and CI | Not started |
-| 2 | Common core: models, paths, hashing, codecs | Not started |
-| 3 | Common core: packs, objects, protocol | Not started |
-| 4 | Server foundation: data folder, database, install scripts | Not started |
-| 5 | Server networking, login, accounts, invites | Not started |
-| 6 | Server storage, push, pull, quotas | Not started |
-| 7 | Client foundation: data, Connections, login, main window | Not started |
-| 8 | Client scanning, addon grouping, local manager | Not started |
-| 9 | Client sync: status, push, selective pull | Not started |
-| 10 | Client admin: accounts, invites, password reset | Not started |
-| 11 | Release packaging and docs | Not started |
+| 1 | Project skeleton and CI | Done |
+| 2 | Common core: models, paths, hashing, codecs | Done |
+| 3 | Common core: packs, objects, protocol | Done |
+| 4 | Server foundation: data folder, database, install scripts | Done |
+| 5 | Server networking, login, accounts, invites | Done |
+| 6 | Server storage, push, pull, quotas | Done |
+| 7 | Client foundation: data, Connections, login, main window | Done |
+| 8 | Client scanning, addon grouping, local manager | Done |
+| 9 | Client sync: status, push, selective pull | Done |
+| 10 | Client admin: accounts, invites, password reset | Done |
+| 11 | Release packaging and docs | Done |
 | 12 | Test pass (manual, by the owner) | Not started |
 
 ---
@@ -445,71 +445,71 @@ Delta sync of large changed files (FastCDC chunking), enabling Anniversary/Era, 
 Each phase: compile-clean, `dist/` produced, checklist ticked, status table updated, one commit.
 
 ### Phase 1 — Project skeleton and CI
-- [ ] Parent `pom.xml` (Java 21, dependency management, Shade config preserving native libs, copy-to-`dist/` step), modules `common`, `server`, `client` with `Main` stubs.
-- [ ] `.gitignore`, `LICENSE` (official GPLv3 text verbatim), `README.md` stub with disclaimer.
-- [ ] `.github/workflows/build.yml`.
+- [x] Parent `pom.xml` (Java 21, dependency management, Shade config preserving native libs, copy-to-`dist/` step), modules `common`, `server`, `client` with `Main` stubs.
+- [x] `.gitignore`, `LICENSE` (official GPLv3 text verbatim), `README.md` stub with disclaimer.
+- [x] `.github/workflows/build.yml`.
 - Done when: `mvn -B clean package` produces both runnable stub jars in `dist/`.
 
 ### Phase 2 — Common core: models, paths, hashing, codecs
-- [ ] Path normalization, case-insensitive keys, invalid-name checks, case-collision detection, exclusion globs, loose-file rule (§14).
-- [ ] Manifest model, JSON (Jackson) with zstd wrapper, fingerprint (§11).
-- [ ] Parallel hashing utilities and hash-cache model.
-- [ ] Codec abstraction: zstd, deflate fallback, raw; negotiation helper.
-- [ ] Compression category table and cached sample test (§11.5).
-- [ ] Profile allowlist (`forever`) and profile id rules (§13).
+- [x] Path normalization, case-insensitive keys, invalid-name checks, case-collision detection, exclusion globs, loose-file rule (§14).
+- [x] Manifest model, JSON (Jackson) with zstd wrapper, fingerprint (§11).
+- [x] Parallel hashing utilities and hash-cache model.
+- [x] Codec abstraction: zstd, deflate fallback, raw; negotiation helper.
+- [x] Compression category table and cached sample test (§11.5).
+- [x] Profile allowlist (`forever`) and profile id rules (§13).
 
 ### Phase 3 — Common core: packs, objects, protocol
-- [ ] Pack writer/reader (compressed and raw kinds, sorted index).
-- [ ] Object file format (header, codecs) and shard path helper (§9).
-- [ ] Frame codec and every message type in §10.2 as typed records; version constants (§10.3).
-- [ ] Addon grouping, data mapping, general-settings rules, and pull-plan rules (§12.2, §15) as pure functions.
+- [x] Pack writer/reader (compressed and raw kinds, sorted index).
+- [x] Object file format (header, codecs) and shard path helper (§9).
+- [x] Frame codec and every message type in §10.2 as typed records; version constants (§10.3).
+- [x] Addon grouping, data mapping, general-settings rules, and pull-plan rules (§12.2, §15) as pure functions.
 
 ### Phase 4 — Server foundation
-- [ ] `server.json` model; data folder resolution; logging to `logs/server.log`.
-- [ ] SQLite schema, `schema_version`, migration runner with pre-migration DB backup (§5.3, §5.6).
-- [ ] Permission lockdown (§5.5).
-- [ ] TLS keystore generation and fingerprint.
-- [ ] `install` and `reset-root` subcommands (§5.4), key validation (BouncyCastle), PBKDF2.
-- [ ] Scripts: `install`, `reset-root`, `start`, `stop` (`.sh` and `.bat`), stop-flag watcher, systemd unit.
+- [x] `server.json` model; data folder resolution; logging to `logs/server.log`.
+- [x] SQLite schema, `schema_version`, migration runner with pre-migration DB backup (§5.3, §5.6).
+- [x] Permission lockdown (§5.5).
+- [x] TLS keystore generation and fingerprint.
+- [x] `install` and `reset-root` subcommands (§5.4), key validation (BouncyCastle), PBKDF2.
+- [x] Scripts: `install`, `reset-root`, `start`, `stop` (`.sh` and `.bat`), stop-flag watcher, systemd unit.
 
 ### Phase 5 — Server networking, login, accounts, invites
-- [ ] TLS listener, control and data connections, sessions, `HELLO` with version check, `DATA_JOIN`, `PING`.
-- [ ] Password and key login; lockout and IP blocking (§7).
-- [ ] Permission checks (§6); account messages incl. caps and quotas; superuser deletion reassigns users.
-- [ ] Invites (§8); SMTP sender and reset codes (§7).
+- [x] TLS listener, control and data connections, sessions, `HELLO` with version check, `DATA_JOIN`, `PING`.
+- [x] Password and key login; lockout and IP blocking (§7).
+- [x] Permission checks (§6); account messages incl. caps and quotas; superuser deletion reassigns users.
+- [x] Invites (§8); SMTP sender and reset codes (§7).
 
 ### Phase 6 — Server storage, push, pull, quotas
-- [ ] Object store per account/profile; `current.manifest`; atomic commit; GC; `profile_state` (§9).
-- [ ] `STATUS`, `MANIFEST_GET`.
-- [ ] Push: delta/full manifest, plan, missing hashes, quota check (§12.6), pack and chunk receive, resume, commit.
-- [ ] Pull: plan from selection and mode, `FETCH`, pack and chunk send, range resume.
+- [x] Object store per account/profile; `current.manifest`; atomic commit; GC; `profile_state` (§9).
+- [x] `STATUS`, `MANIFEST_GET`.
+- [x] Push: delta/full manifest, plan, missing hashes, quota check (§12.6), pack and chunk receive, resume, commit.
+- [x] Pull: plan from selection and mode, `FETCH`, pack and chunk send, range resume.
 
 ### Phase 7 — Client foundation
-- [ ] `wow-ui-sync-data/` with `client.json`, `client.db` (schema + migrations), client log.
-- [ ] FlatLaf main window shell (§17.3), Settings, About.
-- [ ] Connections manager and Connect screen; fingerprint pinning; password and key-file login with passphrase prompt (§17.2).
-- [ ] Install root picker and flavor detection (Forever enabled only); WoW-running detection (§16).
+- [x] `wow-ui-sync-data/` with `client.json`, `client.db` (schema + migrations), client log.
+- [x] FlatLaf main window shell (§17.3), Settings, About.
+- [x] Connections manager and Connect screen; fingerprint pinning; password and key-file login with passphrase prompt (§17.2).
+- [x] Install root picker and flavor detection (Forever enabled only); WoW-running detection (§16).
 
 ### Phase 8 — Client scanning, addon grouping, local manager
-- [ ] Scanner with hash cache and progress; local fingerprint.
-- [ ] Addons view using `common` grouping; delete addon / delete data with backup.
-- [ ] Local backups (§18): copy with free-space check, naming, DB records, folder-name parsing fallback, Backups view, manual backup, restore, delete.
+- [x] Scanner with hash cache and progress; local fingerprint.
+- [x] Addons view using `common` grouping; delete addon / delete data with backup.
+- [x] Local backups (§18): copy with free-space check, naming, DB records, folder-name parsing fallback, Backups view, manual backup, restore, delete.
 
 ### Phase 9 — Client sync
-- [ ] Status badge and line (§11.3), base handling.
-- [ ] Transfer engine client side: data connections, scheduler, pack building, chunking, resume, backoff, Pause/Resume, progress and ETA (§11.5).
-- [ ] Push flow with warnings, review dialog, typed confirmation (§11.4).
-- [ ] Selective pull: source manifest, `.toc` fetch, selection window, modes, plan, review, backup, download, apply, rescan note (§12).
+- [x] Status badge and line (§11.3), base handling.
+- [x] Transfer engine client side: data connections, scheduler, pack building, chunking, resume, backoff, Pause/Resume, progress and ETA (§11.5).
+- [x] Push flow with warnings, review dialog, typed confirmation (§11.4).
+- [x] Selective pull: source manifest, `.toc` fetch, selection window, modes, plan, review, backup, download, apply, rescan note (§12).
 
 ### Phase 10 — Client admin
-- [ ] Accounts panel: list, create, credentials, email, quotas, caps, delete (§17.5).
-- [ ] Invites: create, copy, list, revoke; Join with invite code flow (§8).
-- [ ] My account; Forgot password flow (§7).
+- [x] Accounts panel: list, create, credentials, email, quotas, caps, delete (§17.5).
+- [x] Invites: create, copy, list, revoke; Join with invite code flow (§8).
+- [x] My account; Forgot password flow (§7).
 
 ### Phase 11 — Release packaging and docs
-- [ ] `release.yml` and zip contents (§19).
-- [ ] Full README (§21).
-- [ ] Final consistency pass: defaults (§20), messages, disclaimers.
+- [x] `release.yml` and zip contents (§19).
+- [x] Full README (§21).
+- [x] Final consistency pass: defaults (§20), messages, disclaimers.
 
 ### Phase 12 — Test pass (owner)
 Manual checklist: install on the Ubuntu server; connect as root by key; push Forever (~3.2 GB) and interrupt/resume; status on a second PC; selective pull without the voice pack; backups list, restore, and undo restore; create superuser and user, invite redeem, quotas, lockout, password reset email; server upgrade with migration; WoW-running blocks.

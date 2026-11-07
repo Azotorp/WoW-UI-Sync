@@ -1,0 +1,41 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Build
+        run: mvn -B clean package
+      - name: Package zips
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p release/client release/server/scripts
+          cp dist/wow-ui-sync-client.jar release/client/
+          cp README.md release/client/README.txt
+          cp LICENSE release/client/LICENSE
+          cp dist/wow-ui-sync-server.jar release/server/
+          cp scripts/* release/server/scripts/
+          chmod +x release/server/scripts/*.sh
+          cp README.md release/server/README.txt
+          cp LICENSE release/server/LICENSE
+          (cd release/client && zip -r "../wow-ui-sync-client-${VERSION}.zip" .)
+          (cd release/server && zip -r "../wow-ui-sync-server-${VERSION}.zip" .)
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/wow-ui-sync-client-*.zip
+            release/wow-ui-sync-server-*.zip
