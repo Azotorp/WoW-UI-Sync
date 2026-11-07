@@ -10,6 +10,13 @@ Open source under GPLv3. Not affiliated with or endorsed by Blizzard Entertainme
 
 This file is both the design record and the work queue. It is written so an AI agent (Claude Code) or a human can pick up exactly where the last session stopped without redoing or undoing work.
 
+### Design log vs build plan
+
+- The entries below are **design notes**, not build steps. Entry numbers are not phases.
+- When the design is declared complete, all entries are consolidated into one clean **`DESIGN.md`**: a single current spec with no superseded material, plus a build plan split into phases sized for limited usage sessions.
+- Each phase must end with code that compiles and is committed, so the next session picks up cleanly. Full testing happens only after the final phase.
+- Once `DESIGN.md` exists, it is the spec to build from. This log stays as history, and later design changes are still added here as new entries, then folded into `DESIGN.md`.
+
 ### Reading order
 
 1. Read the **Status board** below. It says what is already built and what is next.
@@ -58,10 +65,11 @@ Supersedes: 00X §Y, … (or "nothing")
 | 002 | Cross-platform support, home and local servers, AI working rules | Planned |
 | 003 | Path-based WoW detection, large audio-heavy profiles, resumable transfers | Planned |
 | 004 | Measured file profile, pack types, per-type compression, object sharding, flavor detection | Planned |
+| 005 | Accounts and roles, install-time root, connections, local manager, mirror push, selective pull, local backups | Planned |
 
 **Code state:** nothing implemented yet. The repo contains only this file.
 
-**Next step:** merge 001–004 into a net spec, then build Phase 1 (001 §18) with the 002, 003, and 004 changes included.
+**Next step:** resolve the open questions in Entry 005, then consolidate 001–005 into `DESIGN.md` with a phased build plan. Do not start coding from the entries directly.
 
 ---
 
@@ -79,6 +87,8 @@ Clone a player's WoW UI setup to any other PC, and keep a revision history so mi
 - Every sync creates a labeled, timestamped snapshot that can be restored.
 
 Typical use: play on the desktop, push. Later on the laptop, pull. The app makes it obvious which direction is needed and protects against pushing or pulling the wrong way.
+
+> ⚠️ "Every sync creates a snapshot" superseded by 005 §2 and §14: the server keeps one current copy per account; undo comes from local backups.
 
 ### 2. Decisions made in this entry
 
@@ -107,12 +117,16 @@ Superseded ideas from early chat, recorded so they are not re-proposed: FTP/FTPS
 - **Head**: the server's current snapshot for a profile.
 - **Base**: the snapshot this device last synced with, per profile.
 
+> ⚠️ New terms added by 005 §1 (account, role, connection, local backup).
+
 ### 4. What gets synced
 
 Per profile, relative to the flavor folder:
 
 - `Interface\AddOns\` (the addon files themselves)
 - `WTF\` (account settings, per-character SavedVariables, macros, keybinds, layouts, etc.)
+
+> ⚠️ Loose files directly inside `Interface\AddOns\` are ignored (005 §12).
 
 **Reference install (dev machine):** `C:\Games\World of Warcraft` with flavor folders `_forever_`, `_anniversary_`, `_classic_era_`. First target profile is `_forever_`:
 
@@ -157,7 +171,7 @@ wow-ui-sync/
 └── LICENSE                 GPLv3
 ```
 
-> ⚠️ `scripts/` extended by 002 §3 (adds `start.bat` and `stop.bat`).
+> ⚠️ `scripts/` extended by 002 §3 (adds `start.bat` and `stop.bat`) and 005 §6 (adds `install` and `reset-root` scripts). Libraries extended by 005 §17.
 
 **Division of work:** the client hashes its local files (only it can see its disk) and sends a compact manifest. The server owns everything else: comparing manifests, deciding what to request or send, storing files, building snapshots, retention, and restore.
 
@@ -169,6 +183,8 @@ wow-ui-sync/
 - Built-in JDK for TLS (`SSLSocket`), SHA-256, threading.
 
 ### 6. Network protocol
+
+> ⚠️ Default port is **2026** (005 §1), replacing 47811 everywhere. Authentication (tokens, `AUTH`) superseded by 005 §4 (accounts with password or public key).
 
 Custom binary protocol over TLS, one TCP port (default `47811`, configurable).
 
@@ -184,7 +200,7 @@ Control payloads are zstd-compressed JSON. Data payloads are raw binary.
 
 **Core message types (initial):** `HELLO`, `AUTH`, `STATUS_REQ/RESP`, `PUSH_BEGIN`, `PUSH_NEED` (server tells client which hashes it lacks), `PACK_UPLOAD`, `FILE_UPLOAD_CHUNK`, `PUSH_COMMIT`, `PULL_BEGIN`, `PULL_PLAN`, `PACK_DOWNLOAD`, `FILE_DOWNLOAD_CHUNK`, `HISTORY_REQ/RESP`, `RESTORE`, `ERROR`, `PING`.
 
-> ⚠️ Message types extended by 003 §3 (resume support). Status flow refined by 004 §6 (manifest fingerprint).
+> ⚠️ Message types extended by 003 §3 (resume support). Status flow refined by 004 §6 (manifest fingerprint). `HISTORY_REQ/RESP` and server-side `RESTORE` dropped by 005 §2; account and invite messages added by 005 §16.
 
 ### 7. Hashing and the local hash cache
 
@@ -194,6 +210,8 @@ Control payloads are zstd-compressed JSON. Data payloads are raw binary.
 - Timestamps are never used to decide which side is newer between machines. They only serve as a cache hint on the local machine.
 
 ### 8. Sync algorithm
+
+> ⚠️ Push and pull behavior extended by 005 §13–§15 (mirror push, review dialog, selective pull, backups inside the flavor folder). The three-way status below still applies, per account and profile.
 
 The client stores, per profile: the **base** snapshot id and the base manifest.
 
@@ -232,7 +250,7 @@ The client stores, per profile: the **base** snapshot id and the base manifest.
 - **Push over newer server**: if head ≠ base, warn before pushing ("The server has newer changes from Laptop. Pushing will replace them. They stay in history. Continue?").
 - **WoW is running**: WoW rewrites SavedVariables on logout and reload. Block pull and warn on push if a WoW process is running. Process names are a configurable list (defaults: `Wow.exe`, `WowClassic.exe`, `WowClassicT.exe`, `WowT.exe`, `WowB.exe`). Detected with `ProcessHandle.allProcesses()`.
 
-> ⚠️ WoW-running detection superseded by 003 §1 (path-based, per profile). 002 §5 name matching becomes the fallback.
+> ⚠️ WoW-running detection superseded by 003 §1 (path-based, per profile). 002 §5 name matching becomes the fallback. 005 §15 blocks every operation that changes a flavor folder while that flavor's WoW runs.
 
 ### 9. Transfer: packs, compression, parallelism
 
@@ -255,6 +273,7 @@ The client stores, per profile: the **base** snapshot id and the base manifest.
 ### 10. Server storage
 
 > ⚠️ Object path layout superseded by 004 §5 (two-level sharding: `objects/ab/cd/<sha256>`).
+> ⚠️ Folder layout, snapshots, and retention superseded by 005 §2–§3 (configurable data folder, per-account storage, one current copy, no server history).
 
 Content-addressed store plus snapshot manifests:
 
@@ -288,6 +307,8 @@ Snapshot metadata: id, profile, device id, device nickname, action (`push`, `res
 
 ### 11. Client local backups (undo for pulls)
 
+> ⚠️ Superseded by 005 §14 (full backup copies inside the flavor folder, recorded in the client database, unlimited).
+
 A pull can overwrite local files that were never pushed, so the server cannot always restore them. Before every pull, the client copies the files it will overwrite or delete into:
 
 ```
@@ -298,12 +319,16 @@ with a small `backup.json` listing what was saved. Keep the newest N local backu
 
 ### 12. History and undo (UI)
 
+> ⚠️ Superseded by 005 §14 (history = the local backup list; no server-side history or server undo).
+
 Per profile, a **History** view lists snapshots and local backups merged on one timeline, each labeled like "Laptop · Push · Nov 7, 9:42 PM" or "Desktop · Pull backup · Nov 7, 10:05 PM".
 
 - **Undo last sync**: one button. After a push, it moves server head back one step. After a pull, it restores the local backup.
 - **Restore this version**: on any server snapshot, either restore it to this PC (like a pull of that snapshot) or make it the server head again. Both create new history entries, so a restore can itself be undone.
 
 ### 13. Client UI (Swing + FlatLaf)
+
+> ⚠️ Extended by 005 §9–§15 (Connections manager, Accounts panel, invite codes, local manager, review dialog, selective pull).
 
 Main window:
 
@@ -325,6 +350,8 @@ Settings:
 
 ### 14. Configuration files
 
+> ⚠️ Superseded by 005 §3 (server: data folder, `server.json` without users, SQLite) and 005 §10 (client: data folder next to the jar, Connections, SQLite).
+
 **Client:** `wow-ui-sync-client.json` next to the jar. Contains server host, port, token (stored in plain text by design; trusted environment), pinned certificate fingerprint, device id (random UUID generated on first run), device nickname, install root, profiles with exclusions, and settings. Per-profile state (base snapshot id, base manifest, hash cache) lives in `state/<profile>/`.
 
 **Server:** `data/server.json`. Port, bind address, list of users with tokens, retention count, max connections per session, log level. On first run the server creates a default config and one user with a generated token, and prints the token and certificate fingerprint to the console.
@@ -332,6 +359,8 @@ Settings:
 > ⚠️ Defaults for host and bind address set by 002 §2.
 
 ### 15. Running the server
+
+> ⚠️ Server console superseded by 005 §6 (no console; log file; admin work happens in the client and in `install` / `reset-root` scripts).
 
 `scripts/start.sh`:
 
@@ -345,7 +374,7 @@ Optional `scripts/wow-ui-sync.service` for systemd with `Restart=on-failure`, fo
 
 Setup notes for the README: install `openjdk-21-jre-headless`, open the port (`sudo ufw allow 47811/tcp`), run `start.sh`.
 
-> ⚠️ Extended by 002 §3 (Windows `.bat` scripts, `screen` fallback, no root needed).
+> ⚠️ Extended by 002 §3 (Windows `.bat` scripts, `screen` fallback, no root needed). Port is 2026 (005 §1).
 
 ### 16. Build, CI, and releases
 
@@ -372,7 +401,11 @@ dist/
 - Per-character or per-addon selective sync.
 - Optional Windows tray mode with auto-push on WoW exit.
 
+> ⚠️ "Account mode" is now covered by the self-hosted account system (005). Per-addon selective pull is now in scope (005 §15).
+
 ### 18. Phases
+
+> ⚠️ Superseded: phases will be defined in `DESIGN.md` during consolidation (see Rules).
 
 1. **Phase 1 (first test):** server with storage and snapshots; client with settings, status, push, pull, packs, zstd, parallel connections, local backups, WoW-running check; build + CI artifacts.
 2. **Phase 2:** history UI, restore any version, undo button polish, Sync All, delta sync.
@@ -413,6 +446,8 @@ Both jars run on Windows, Linux, and macOS, in any combination (e.g. Windows cli
 - **Fallback:** if the zstd native library fails to load on an unusual platform, fall back to the JDK's built-in Deflater/Inflater (gzip-style) and log a warning. The compression codec is negotiated in `HELLO`, so a client and server on different codecs still work.
 
 ### 2. Home, LAN, and same-machine servers
+
+> ⚠️ Port is 2026 (005 §1). Same-machine token auto-detect and first-run token printing superseded by 005 §4–§6 (no tokens; root is created by the installer).
 
 - The server does not need root. Port 47811 is above 1024, so any normal user can run it.
 - **Server bind address default: `0.0.0.0`** (all network interfaces). The server does not need to know its own host name. Setting it to `127.0.0.1` makes it reachable only from the same machine.
@@ -622,3 +657,212 @@ Takeaways:
 
 1. Approximate upload speed on the desktop and download speed on the laptop (for the first-sync ETA text).
 2. Remaining: 001 question 4 (folder deletions) and 5 (port), 002 question 2 (multiple servers).
+
+---
+
+## Entry 005 — 2026-11-07 — Accounts and roles, install-time root, connections, local manager, mirror push, selective pull, local backups
+Status: Planned
+Supersedes: 001 §1 (snapshot per sync), §6 (port 47811, token auth), §10 (folder layout, history, retention), §11, §12, §14, §15 (console), §17 (Account mode), §18 (phases); 002 §2 (port, token auto-detect). Extends 001 §4, §8, §13; 003 §1.
+
+### Summary
+
+The server becomes a small multi-account host while staying self-hosted. Accounts have roles (**root**, **superuser**, **user**) and log in with a **password or a public key**. `install` creates the server and the root account in one interactive run over SSH. The client works like WinSCP: you save **Connections** (host, port, username, password or private key file) and pick one. The server keeps **one current copy** per account; there is no server-side history. The client gains a second job as a **local manager**: full backup copies inside the flavor folder, restore, and deleting addons. Push is a **mirror** (adds, updates, and deletes) behind a **review dialog**. Pull is **selective**: tick which addons and which addon data to bring down, from any account you can access.
+
+Resolves 001 open questions 4 (push mirrors deletions) and 5 (port is 2026), and 002 open question 2 (the client stores multiple Connections).
+
+### 1. Terms and port
+
+- **Account**: a sync identity on the server. It can be a person or just another install or setup (a stream setup, a partner's PC). It has a username, a role, an optional email, and either a password or a public key.
+- **Role**: `root`, `superuser`, or `user` (§4).
+- **Owner**: every `user` account has an owner, the root or superuser who created it or whose invite code was used.
+- **Connection** (client side): a saved login to a server, like a WinSCP site (§10). "Profile" keeps meaning a game flavor folder.
+- **Local backup**: a full copy of a flavor folder's `Interface` and `WTF`, made by the client inside that flavor folder (§14).
+- **Default port: `2026`** everywhere (server config, installer default, client default, README `ufw` example). Any port 1025–65535 is allowed. The number is a nod to the year WoW Forever launched.
+
+### 2. Server storage: one current copy per account (supersedes 001 §10 history and retention)
+
+- The server keeps exactly **one current copy** per account and game profile: the last successful push. There are no snapshots, no retention count, and no server-side undo or restore. Undo comes only from local backups (§14).
+- Storage stays content-addressed per account (004 §5 sharding, object headers, codecs), because that keeps dedup, cheap unchanged-file checks, and resumable transfers (003 §3).
+- Each account and profile has one **current manifest** plus its fingerprint (004 §6). A push builds the new manifest in a temp file, verifies every object, then atomically replaces the current manifest.
+- After every successful push, objects no longer referenced by that account's current manifests are garbage-collected. GC never runs during an active transfer for that account.
+- Accounts do not share objects with each other. Deleting an account deletes its whole folder.
+- The three-way status (001 §8) still works: the "base" a client remembers is the manifest fingerprint of the last push or pull it did for that account and profile, and "head" is the server's current manifest fingerprint.
+
+### 3. Server data folder and files (supersedes 001 §14 server part)
+
+- The data folder is a **full path chosen during install**. It can be anywhere the server's OS user can read and write; it does not have to sit next to the jar. The jar finds it through `server.json` next to the jar, or a `--data <path>` argument.
+- Layout:
+
+```
+<data folder>/
+├── server.json          port, bind address, public host, transfer settings, SMTP settings, log level
+├── wowuisync.db         SQLite: accounts, roles, owners, credentials, invite codes, reset codes, sessions
+├── keys/                public keys for key-based accounts, one file per account
+├── tls/                 TLS keystore (server private key + self-signed certificate)
+├── logs/server.log      rotating log
+├── stop.flag            written by stop scripts (002 §3)
+└── accounts/<account-id>/profiles/<profile-id>/
+    ├── current.manifest
+    └── objects/ab/cd/<sha256>
+```
+
+- Accounts are stored on disk by a fixed numeric or random **account id**, not by username, so renaming never moves folders.
+- **Permission lockdown on every startup:** on Linux and macOS, the data folder, `keys/`, `tls/`, and `wowuisync.db` are set to `700` (folders) and `600` (files) for the user running the server. On Windows, the same is done with file ACLs (owner only). If anything was looser, the server fixes it and logs a warning. Public keys are not secret, but they must be write-protected, since anyone who could add one could log in as that account.
+- The README recommends running the server as its own unprivileged OS user (e.g. `wowuisync`) without sudo.
+
+### 4. Roles and permissions
+
+| | root | superuser | user |
+|---|---|---|---|
+| How many | exactly one, username `root` (reserved) | any number | any number |
+| Created by | installer only | root (direct or invite) | root or a superuser (direct or invite) |
+| Can access data of | every account | itself + users it owns | itself |
+| Can create | superusers, users, invite codes for either | users, invite codes for users | nothing |
+| Can manage (reset password/key, edit email, delete) | every account except that root's own credentials are changed via `reset-root` or its own settings | users it owns | its own password, key, and email |
+| Server settings | via `server.json` / scripts on the host | no | no |
+
+- "Access data" means full read and write: view, pull from, and push to that account (push to another account requires the extra confirmation in §13).
+- **Superusers are peers.** A superuser can never see, change, or delete root, another superuser, or users owned by someone else. A superuser is not a server admin; it is a group owner for its own set of accounts (stream setup, partner's PC, friends).
+- **Max users per superuser:** root sets a cap when creating or editing a superuser. Default **unlimited**. The cap counts existing owned users plus remaining slots on that superuser's active invite codes. A capped superuser cannot create unlimited-use invite codes.
+- **Deleting a superuser** moves all of its owned users to root's ownership. Their data is kept.
+- **Usernames:** 3–32 characters, `[A-Za-z0-9_-]`, unique case-insensitively. `root` is reserved.
+
+### 5. Authentication (supersedes 001 §6 token auth)
+
+- Every account uses **either a public key or a password, never both**. If a key is set, password login is refused with a clear message ("This account requires a key"), and vice versa.
+- **Keys:** OpenSSH public key lines (`ssh-ed25519`, `ssh-rsa` with at least 2048 bits, `ecdsa-sha2-nistp256`). Login is challenge–response: the server sends a random nonce; the client signs the nonce together with the session id and the server's TLS certificate fingerprint using the private key; the server verifies with the stored public key. The private key never leaves the client.
+- The client reads **OpenSSH-format private key files**, with a passphrase prompt if encrypted. PuTTYgen users export via **Conversions → Export OpenSSH key** (a `.ppk` import may be added later). The README says to use a separate key pair for WoW UI Sync, not the key used for SSH.
+- **WoW UI Sync keys never grant SSH or shell access.** They are checked only by the server jar inside its own protocol.
+- **Passwords** are stored as PBKDF2-HMAC-SHA256 hashes (JDK built-in, 600,000 iterations, 16-byte random salt). Minimum length 8.
+- After login the server issues a random **session id** for that sync session; data connections join with it. Sessions end on disconnect. Changing an account's password or key ends its active sessions.
+- **Email password reset** (password accounts only): each account may have an email. If SMTP is configured in `server.json`, the client shows "Forgot password": the server emails a 6-digit code valid for 15 minutes, single use; the user enters it with a new password. If SMTP is not configured, the option is hidden. Key-only accounts are recovered by their manager (root or the owning superuser) setting a new key or password, and root by `reset-root` (§6).
+- **SMTP:** the server sends mail by logging in to an outside mail service (Gmail app password, Brevo, SMTP2GO, Amazon SES, etc.). No mail server is installed on the host. Settings: host, port, username, password, from address, `starttls` or `ssl`.
+
+### 6. Server scripts and no console (supersedes 001 §15 console)
+
+- The server has **no interactive console**. It runs headless and writes `logs/server.log`. `start` / `stop` scripts and the restart loop from 001 §15 and 002 §3 stay.
+- Interactive admin tasks are subcommands of the server jar, so they work the same on every OS and can hide password input (`Console.readPassword`). Thin wrappers call them: `scripts/install.sh` / `install.bat`, `scripts/reset-root.sh` / `reset-root.bat`.
+- **`install`** (run once over SSH):
+  1. Checks Java 21.
+  2. Asks for the **data folder full path** (default `~/wow-ui-sync-data`), creates it, checks write access.
+  3. Asks for the **port** (default `2026`, must be 1025–65535) and the **public host or IP** (a detected guess is offered; used only in printed connection info and invite codes).
+  4. Asks for root's **public key**: paste an OpenSSH public key line, or press Enter to skip. The key is parsed and validated (type, size, not truncated); on failure it asks again.
+  5. If no key was given: asks for root's **password twice** with hidden input, repeating on mismatch or if too short.
+  6. Asks for root's **email** (optional; Enter to skip).
+  7. Writes `server.json`, creates `wowuisync.db`, generates the TLS keystore, creates `keys/`, locks down permissions, and creates the **root account**.
+  8. Prints a summary: host, port, username `root`, login method, and the **TLS certificate fingerprint** to compare on the client's first connect. Offers to start the server.
+  - `install` refuses to run if root already exists and points to `reset-root`.
+- **`reset-root`**: asks whether to set a new public key or a new password (password asked twice, hidden), replaces root's credentials, and ends root's sessions. Works while the server is running (SQLite in WAL mode; the server re-reads credentials on each login).
+- The old `invite.sh` idea is dropped: invite codes are made in the client (§8).
+
+### 7. Direct account creation (client, Accounts panel)
+
+- Root or a superuser opens **Accounts → New account** and fills in: username, role (root can pick superuser or user; a superuser can only create users), either a **public key** (paste the OpenSSH public key line) or a **password** (twice), optional email, and for superusers the max-users cap.
+- The private key is never pasted here. The new account's owner sets up their own Connection on their own PC, just like adding a new FTP account and then creating a site for it in WinSCP.
+
+### 8. Invite codes (client)
+
+- Root can create invite codes for **superuser** or **user**; a superuser can create codes for **user** only (counted against its cap, §4).
+- Options: **uses** = 1, a number N, or unlimited; optional **expiry** date.
+- The code is one pasteable string: `wus1-<base64url JSON>` containing host, port, TLS certificate fingerprint, and a random secret of at least 128 bits. Base64 is packaging, not encryption; the secret is what matters. The server stores only a hash of the secret, plus role, owner (the creator), remaining uses, and expiry.
+- Each redemption decrements uses. When uses reach 0, or the code expires, the row is **deleted**, so the database stays small. Creators can list and revoke their own codes; root can see all.
+- **Redeeming:** in the client, **Join with invite code** → paste → the client fills in host and port, verifies the TLS fingerprint automatically, then asks for a username, a public key file (the client reads the public half and sends only that) or a password, and an optional email. The account is created with owner = code creator, and a Connection is saved.
+
+### 9. Accounts panel (client)
+
+- Visible to root and superusers. Lists every account the logged-in account may manage (§4): username, role, owner, email, login method, last push time, storage used.
+- Actions: set new password or key, edit email, set max users (root, on superusers), delete (requires typing the username to confirm; deletes the account's server data). Plus the invite code list with revoke.
+
+### 10. Client Connections and client data (supersedes 001 §13 settings and §14 client part)
+
+- First launch with no saved Connection opens a **Connect** screen. There is no "set up a server" path in the client; it always assumes the server and root already exist.
+- A **Connection** stores: name, host, port (default 2026), username, and either a password (saved, or prompted each time, user's choice; plain text by design for trusted environments) or a **private key file path** (passphrase prompted when needed). Multiple Connections can be saved; a list and editor work like WinSCP's site manager.
+- **First connect to a host** shows the server's TLS fingerprint to compare with what `install` printed; once accepted it is pinned per host and port, and a mismatch later blocks the connection with a clear warning. Invite codes pin automatically (§8).
+- A wrong login method gives a clear error ("This account requires a key; choose a key file").
+- **Choosing a Connection or an account changes nothing on disk.** It only sets which account the next push or pull targets. Files change only after **Push** or **Pull** and the review dialog (§13).
+- Client data lives in a folder next to the jar, `wow-ui-sync-data/`: `client.json` (device nickname, install root, profiles, exclusions, transfer settings) and `client.db` (SQLite: Connections, pinned fingerprints, hash caches, per account/profile base fingerprints, local backup records).
+
+### 11. Client has two jobs
+
+1. **Local manager** (no server needed): list, restore, and delete local backups (§14); browse installed addons grouped as real addons (§12); delete an addon (its folders) and/or its data, always after a backup.
+2. **Cloud sync**: status, push (mirror, §13), and selective pull (§15) against the chosen account.
+
+### 12. Addon grouping and data mapping
+
+- **Loose files directly inside `Interface/AddOns/`** (for example `.zip` files left as manual backups) are **ignored** by sync, review, and grouping. Only folders count. Everything inside an addon folder still syncs normally.
+- **Grouping folders into addons** by reading each folder's `.toc`:
+  - Folder B belongs to addon A if B's name starts with A's name followed by `_` or `-` (e.g. `AtlasLootClassic_Collections` → `AtlasLootClassic`) **and** B's `.toc` lists A in `## Dependencies`, `## RequiredDeps`, or `## OptionalDeps`; or
+  - A and B share a project id (`## X-Curse-Project-ID`, `## X-Wago-ID`, `## X-WoWI-ID`) and one's name is a prefix of the other's.
+  - The display name comes from `## Title` (color codes stripped), falling back to the folder name. Folders that match nothing are their own addon.
+- **Mapping data to addons:** WoW names SavedVariables files after the addon folder. `WTF/Account/<acct>/SavedVariables/<Folder>.lua` (and `.lua.bak`) plus per-character copies at `WTF/Account/<acct>/<realm>/<char>/SavedVariables/<Folder>.lua` belong to the addon group containing `<Folder>`.
+- Everything else in `WTF` is **General settings**: macros, keybindings, chat and layout caches, per-character addon enable lists (`AddOns.txt`), and `Blizzard_*` SavedVariables (default game UI).
+
+### 13. Push = mirror, with a review dialog (extends 001 §8)
+
+- A push makes the account's server copy an **exact mirror** of the local `Interface/AddOns` and `WTF` (minus exclusions and ignored loose files): new files are uploaded, changed files are re-uploaded, and files that no longer exist locally are **removed** from the server. Unchanged files are skipped.
+- **Review dialog before every push and pull:** a window listing, in this order, **New files**, **Edited files**, **Removed files**, each as a plain scrollable text list of paths with a count in its heading. No diffs. Buttons: **Yes** and **Cancel**. Nothing changes on either side until Yes.
+- **Pushing to an account other than the one you are logged in as** (root or a superuser acting on an owned account): the dialog headline names the target account, and Yes stays disabled until the user types that account's username.
+- The existing warnings (001 §8: pushing when the server is newer) still appear first.
+
+### 14. Local backups (supersedes 001 §11 and §12)
+
+- Before any operation that changes a flavor folder (pull, restore, deleting an addon or its data), the client makes a **full copy** of the current `Interface` and `WTF` folders **inside the same flavor folder**:
+  - `Interface_<account>_<YYYY-MM-DD_HH-MM-SS>` and `WTF_<account>_<YYYY-MM-DD_HH-MM-SS>`, e.g. `WTF_Girlfriend_2026-11-07_21-30-53` (dashes instead of colons, since Windows forbids colons). `<account>` is the account whose setup was last applied to this flavor folder, or `local` if unknown.
+  - WoW only loads `Interface` and `WTF`, so these sibling folders are ignored by the game.
+- The copy is made, then the live folders are updated in place (§15). Live folders are never renamed away, so a nearly current PC only downloads the differences.
+- Each backup is **recorded in `client.db`**: flavor, account, timestamp, reason (`before pull from <account>`, `before restore`, `before addon delete`, `manual`), source account for pulls, file count, and size. Folder names stay generic; the database holds the meaning. If the database is missing, the client still lists backups by parsing folder names (reason shown as "unknown").
+- **Retention: unlimited.** Backups are only deleted when the user deletes them.
+- **Backups list** (per flavor): one entry per `Interface`/`WTF` pair, newest first, shown like "Girlfriend · Nov 7, 2026, 9:30:53 PM · Before pull from Azotorp", with a **Manual backup** button and per-entry **Restore** and **Delete**.
+- **Restore** first makes a new backup of the current live folders (reason `before restore`), then makes the live folders match the chosen backup (copy back, diff-style: only differing files are copied, extra files removed). The chosen backup stays in the list, so any restore can itself be undone.
+
+### 15. Selective pull (extends 001 §8, replaces 001 §17 "selective sync" as future work)
+
+- **Source:** any account the logged-in account can access (§4): your own from another PC, an owned account, or anyone's for root.
+- **Selection window:** a scrollable list of the source account's addons (grouped per §12), each with an **Addon** checkbox and an **Include data** checkbox, plus a **General settings** row. Shortcut buttons: **All addons**, **All data**, **None**. Typical use: select all, untick the voice pack, pull ~100 MB instead of 3 GB.
+- **Mode:**
+  - **Replace** (default): after the pull, the local `Interface/AddOns` contains exactly the selected addons; local addons not in the selection are removed (they are in the backup). For selected addons with data ticked, their SavedVariables are mirrored from the source; addons without data ticked keep whatever local data exists. General settings are replaced only if ticked.
+  - **Keep my other addons** (checkbox): only the selected addons and data are touched; nothing else is removed.
+- **Flow:** WoW check → selection → review dialog (§13 lists) → local backup copy (§14) → download only differing files in the selection → apply removals → record the applied account for this flavor → show the CurseForge/WowUp rescan note if addons changed.
+- Pulling your own account onto your own laptop uses the same flow; with everything selected it simply brings the laptop up to date.
+- **WoW must be closed:** every operation that changes a flavor folder (pull, restore, addon delete, backup restore) is refused while that flavor's WoW is running (003 §1), with a message saying which game to close. Status checks and push still work, but push warns (001 §8).
+
+### 16. Protocol additions (extends 001 §6)
+
+- Login: `LOGIN_PASSWORD`, `LOGIN_KEY_BEGIN` / `LOGIN_KEY_CHALLENGE` / `LOGIN_KEY_PROOF`, `LOGIN_OK` / `LOGIN_FAIL` (reason codes: `wrong_method`, `bad_credentials`, `locked`, …).
+- Accounts: `ACCOUNT_LIST`, `ACCOUNT_CREATE`, `ACCOUNT_UPDATE`, `ACCOUNT_DELETE`, `ACCOUNT_SET_CREDENTIAL`.
+- Invites: `INVITE_CREATE`, `INVITE_LIST`, `INVITE_REVOKE`, `INVITE_REDEEM`.
+- Reset: `RESET_REQUEST`, `RESET_CONFIRM`.
+- Selective pull: `PULL_BEGIN` carries the source account, selected addon groups, data flags, general-settings flag, and mode; the server returns the plan for the review dialog.
+- Every push, pull, and account message carries the **target account id**; the server checks §4 permissions on every request, never trusting the client.
+- Dropped: `HISTORY_REQ/RESP`, server-side `RESTORE`.
+
+### 17. Libraries (extends 001 §5)
+
+- `sqlite-jdbc` (Apache 2) on server and client; bundles native libraries for Windows, Linux, and macOS (keep them when shading, like zstd-jni).
+- `BouncyCastle` (MIT-style license) for parsing OpenSSH public and private key formats, including encrypted private keys. Signature checks use JDK `Signature` (Ed25519, RSA, ECDSA).
+- **SMTP:** a minimal built-in sender (STARTTLS or SMTPS, AUTH PLAIN/LOGIN) over JDK sockets, to avoid an extra dependency.
+
+### Changes
+
+- [ ] `server`: data folder from install, `server.json` without users, SQLite schema (accounts, roles, owners, credentials, invites, reset codes), permission lockdown on startup (§3).
+- [ ] `server`: one current manifest per account and profile; atomic replace; per-account GC; remove snapshot/history code paths (§2).
+- [ ] `server`: role and ownership checks on every request; superuser caps; superuser deletion reassigns users to root (§4).
+- [ ] `common` + `server` + `client`: password (PBKDF2) and key (challenge–response) login; OpenSSH key parsing; session ids (§5).
+- [ ] `server`: SMTP sender and email reset codes (§5).
+- [ ] `server`: `install` and `reset-root` subcommands with hidden input; `install`/`reset-root` `.sh` and `.bat` wrappers; no console; log file (§6).
+- [ ] `client`: Accounts panel, direct creation, invite codes (create, list, revoke, redeem) (§7–§9).
+- [ ] `client`: Connections manager, fingerprint pinning per host, `wow-ui-sync-data/` with `client.json` + `client.db` (§10).
+- [ ] `client`: addon grouping from `.toc`, SavedVariables mapping, General settings group, ignore loose files in AddOns (§12).
+- [ ] `client`: mirror push with review dialog and typed confirmation for other accounts (§13).
+- [ ] `client`: local backups (full copy, naming, DB records, unlimited), backups list, manual backup, restore, delete (§14).
+- [ ] `client`: selective pull window, Replace / Keep modes, WoW-closed enforcement for all local changes (§15).
+- [ ] `common`: protocol messages from §16.
+- [ ] Defaults and README: port 2026 everywhere; `install` walkthrough; separate key pair advice; unprivileged OS user advice; SMTP setup.
+
+### Open questions
+
+1. **Accounts and game versions:** does one account hold one copy per flavor (Forever, Anniversary, Era each stored under the same account), or should each flavor be its own account? Current assumption: one copy per account **per profile**.
+2. **Storage limits:** should root be able to cap disk space per account (and per superuser group)?
+3. **Login protection:** lockout or backoff after repeated failed logins (per account and per IP)? Suggested: 5 failures → 15-minute lock, plus per-IP rate limiting.
+4. **Server upgrades:** how to install a new server version without losing data (replace the jar, keep the data folder, automatic SQLite schema migrations, and a version check between client and server).
+5. When the design is declared complete: consolidate 001–005 into `DESIGN.md` with phases sized for usage sessions (see Rules).
