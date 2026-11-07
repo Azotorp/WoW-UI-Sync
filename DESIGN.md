@@ -25,7 +25,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 | 3 | Common core: packs, objects, protocol | Done |
 | 4 | Server foundation: data folder, database, install scripts | Done |
 | 5 | Server networking, login, accounts, invites | Done |
-| 6 | Server storage, push, pull, quotas | Not started |
+| 6 | Server storage, push, pull, quotas | Done |
 | 7 | Client foundation: data, Connections, login, main window | Not started |
 | 8 | Client scanning, addon grouping, local manager | Not started |
 | 9 | Client sync: status, push, selective pull | Not started |
@@ -479,10 +479,10 @@ Each phase: compile-clean, `dist/` produced, checklist ticked, status table upda
 - [x] Invites (§8); SMTP sender and reset codes (§7).
 
 ### Phase 6 — Server storage, push, pull, quotas
-- [ ] Object store per account/profile; `current.manifest`; atomic commit; GC; `profile_state` (§9).
-- [ ] `STATUS`, `MANIFEST_GET`.
-- [ ] Push: delta/full manifest, plan, missing hashes, quota check (§12.6), pack and chunk receive, resume, commit.
-- [ ] Pull: plan from selection and mode, `FETCH`, pack and chunk send, range resume.
+- [x] Object store per account/profile; `current.manifest`; atomic commit; GC; `profile_state` (§9).
+- [x] `STATUS`, `MANIFEST_GET`.
+- [x] Push: delta/full manifest, plan, missing hashes, quota check (§12.6), pack and chunk receive, resume, commit.
+- [x] Pull: plan from selection and mode, `FETCH`, pack and chunk send, range resume.
 
 ### Phase 7 — Client foundation
 - [ ] `wow-ui-sync-data/` with `client.json`, `client.db` (schema + migrations), client log.

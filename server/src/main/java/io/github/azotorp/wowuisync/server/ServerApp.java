@@ -80,7 +80,7 @@ public final class ServerApp {
                 }
             }, "shutdown"));
             Thread watcher = Thread.ofPlatform().daemon().name("stop-flag").start(this::watchStopFlag);
-            Thread housekeeping = Thread.ofPlatform().daemon().name("housekeeping").start(() -> housekeeping(ctx));
+            Thread housekeeping = Thread.ofPlatform().daemon().name("housekeeping").start(() -> housekeeping(ctx, storage));
             listener.start();
             Logs.LOG.info("TLS certificate SHA-256: " + CertFingerprint.pretty(fingerprint));
             Logs.LOG.info("SMTP password reset: " + (ctx.smtp.enabled() ? "enabled" : "disabled"));
@@ -100,11 +100,12 @@ public final class ServerApp {
         }
     }
 
-    private void housekeeping(ServerContext ctx) {
+    private void housekeeping(ServerContext ctx, Storage storage) {
         while (!stopping) {
             try {
                 ctx.db.pruneIpFailures();
                 ctx.db.deleteExpiredInvites();
+                storage.cleanPartials();
                 Thread.sleep(10 * 60_000L);
             } catch (InterruptedException e) {
                 return;
