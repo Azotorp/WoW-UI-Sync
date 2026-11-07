@@ -22,7 +22,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 |---|---|---|
 | 1 | Project skeleton and CI | Done |
 | 2 | Common core: models, paths, hashing, codecs | Done |
-| 3 | Common core: packs, objects, protocol | Not started |
+| 3 | Common core: packs, objects, protocol | Done |
 | 4 | Server foundation: data folder, database, install scripts | Not started |
 | 5 | Server networking, login, accounts, invites | Not started |
 | 6 | Server storage, push, pull, quotas | Not started |
@@ -459,10 +459,10 @@ Each phase: compile-clean, `dist/` produced, checklist ticked, status table upda
 - [x] Profile allowlist (`forever`) and profile id rules (§13).
 
 ### Phase 3 — Common core: packs, objects, protocol
-- [ ] Pack writer/reader (compressed and raw kinds, sorted index).
-- [ ] Object file format (header, codecs) and shard path helper (§9).
-- [ ] Frame codec and every message type in §10.2 as typed records; version constants (§10.3).
-- [ ] Addon grouping, data mapping, general-settings rules, and pull-plan rules (§12.2, §15) as pure functions.
+- [x] Pack writer/reader (compressed and raw kinds, sorted index).
+- [x] Object file format (header, codecs) and shard path helper (§9).
+- [x] Frame codec and every message type in §10.2 as typed records; version constants (§10.3).
+- [x] Addon grouping, data mapping, general-settings rules, and pull-plan rules (§12.2, §15) as pure functions.
 
 ### Phase 4 — Server foundation
 - [ ] `server.json` model; data folder resolution; logging to `logs/server.log`.
