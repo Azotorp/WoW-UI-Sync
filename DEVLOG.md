@@ -57,10 +57,11 @@ Supersedes: 00X §Y, … (or "nothing")
 | 001 | Initial design draft | Planned |
 | 002 | Cross-platform support, home and local servers, AI working rules | Planned |
 | 003 | Path-based WoW detection, large audio-heavy profiles, resumable transfers | Planned |
+| 004 | Measured file profile, pack types, per-type compression, object sharding, flavor detection | Planned |
 
 **Code state:** nothing implemented yet. The repo contains only this file.
 
-**Next step:** merge 001 + 002 + 003 into a net spec, then build Phase 1 (001 §18) with the 002 and 003 changes included.
+**Next step:** merge 001–004 into a net spec, then build Phase 1 (001 §18) with the 002, 003, and 004 changes included.
 
 ---
 
@@ -117,6 +118,8 @@ Per profile, relative to the flavor folder:
 
 - `C:\Games\World of Warcraft\_forever_\Interface\AddOns`
 - `C:\Games\World of Warcraft\_forever_\WTF`
+
+> ⚠️ Profile detection extended by 004 §7 (`.flavor.info` / `Wow*.exe` markers).
 
 **Profile detection:** when the user picks the install root, the client lists subfolders matching `_*_` that contain a `WTF` or `Interface` folder and offers them as profiles. Users can also add a profile pointing at any folder manually.
 
@@ -181,7 +184,7 @@ Control payloads are zstd-compressed JSON. Data payloads are raw binary.
 
 **Core message types (initial):** `HELLO`, `AUTH`, `STATUS_REQ/RESP`, `PUSH_BEGIN`, `PUSH_NEED` (server tells client which hashes it lacks), `PACK_UPLOAD`, `FILE_UPLOAD_CHUNK`, `PUSH_COMMIT`, `PULL_BEGIN`, `PULL_PLAN`, `PACK_DOWNLOAD`, `FILE_DOWNLOAD_CHUNK`, `HISTORY_REQ/RESP`, `RESTORE`, `ERROR`, `PING`.
 
-> ⚠️ Message types extended by 003 §3 (resume support).
+> ⚠️ Message types extended by 003 §3 (resume support). Status flow refined by 004 §6 (manifest fingerprint).
 
 ### 7. Hashing and the local hash cache
 
@@ -233,6 +236,8 @@ The client stores, per profile: the **base** snapshot id and the base manifest.
 
 ### 9. Transfer: packs, compression, parallelism
 
+> ⚠️ Pack and compression rules superseded by 004 §2–§3 (separate raw and compressed packs, per-type compression table). Large-file path, parallelism, integrity, and progress below still apply.
+
 **Packs for small files.** Files under the large-file threshold (default 4 MB) are grouped into packs of roughly 8 MB uncompressed. Each pack is one zstd stream containing a small index plus the concatenated file bytes. Compressing many Lua files together gives a much better ratio than compressing each alone, because they share vocabulary. Packs are only a transport format: the server unpacks them and stores each file individually.
 
 **Large files** are streamed individually in 1 MB chunks, so several large files can transfer in parallel across data connections.
@@ -248,6 +253,8 @@ The client stores, per profile: the **base** snapshot id and the base manifest.
 > ⚠️ Extended by 003 §2–§3 (audio handling, resumable transfers, ETA).
 
 ### 10. Server storage
+
+> ⚠️ Object path layout superseded by 004 §5 (two-level sharding: `objects/ab/cd/<sha256>`).
 
 Content-addressed store plus snapshot manifests:
 
@@ -277,7 +284,7 @@ Snapshot metadata: id, profile, device id, device nickname, action (`push`, `res
 
 **Server-side security:** every incoming path is normalized and rejected if it is absolute, contains `..`, or escapes the profile root. Profile and user names are restricted to `[A-Za-z0-9_-]`.
 
-> ⚠️ "zstd-compressed at rest" refined by 003 §2 (already-compressed files stored raw).
+> ⚠️ "zstd-compressed at rest" refined by 003 §2 and 004 §3 (codec chosen per type; already-compressed files stored raw).
 
 ### 11. Client local backups (undo for pulls)
 
@@ -474,6 +481,8 @@ Supersedes: 001 §8 WoW-running check and 002 §5 (name matching becomes the fal
 
 Real-world numbers from the dev machine: the `_forever_` profile (AddOns + WTF) is about **3 GB**, mostly **long sound files**, with Lua and SavedVariables making up most of the file count but little of the size. The design is tuned for that: audio is never recompressed, the large-file path gets parallel chunked streaming, and transfers must survive a dropped connection without starting over, since the first push of 3 GB can take a while on a home upload. WoW-running detection switches to checking where a process was launched from, which is reliable across all game versions and needs no exe name list.
 
+> ⚠️ Corrected by 004 §1: measured data shows the audio is ~18,000 short clips (largest 1.1 MB), not long tracks, so audio travels in packs, not the large-file path.
+
 Resolves 001 open question 1 (process names no longer required) and question 2 (size known; exact file count still welcome).
 
 ### 1. WoW-running check: path-based, per profile
@@ -482,9 +491,11 @@ Resolves 001 open question 1 (process names no longer required) and question 2 (
 - Comparison is case-insensitive and uses normalized absolute paths.
 - **Per profile:** only the profile whose game is running is blocked. Playing Anniversary does not block syncing Forever.
 - **Fallback:** if a process's path is unavailable (e.g. permissions, or Wine where the visible process is the Wine loader), use the 002 §5 name matching, but only when the match also appears in the process command line together with the flavor folder name. If neither method can tell, show "Couldn't check whether WoW is running" as a warning, not a block.
-- Note: Windows Task Manager's Processes tab shows the display name "World of Warcraft", not the exe name. The exe name is not needed with this approach.
+- Note: Windows Task Manager's Processes tab shows the display name "World of Warcraft", not the exe name. Confirmed on the dev machine: Forever runs as `C:\Games\World of Warcraft\_forever_\Wow.exe`.
 
 ### 2. Audio-heavy profiles
+
+> ⚠️ Compression list superseded by 004 §3 (per-type table). The "sound files above 4 MB" note does not apply to measured data (004 §1).
 
 - Treat these extensions as already compressed: never compress in transit or at rest: `.ogg`, `.mp3`, `.m4a`, `.aac`, `.flac`, `.opus`, `.wav` is NOT in this list (raw PCM compresses somewhat; let the 5% rule decide), plus the image and archive types from 001 §9.
 - Objects for those types are stored raw in the object store (the object header records the codec, so the reader knows). Refines 001 §10 "zstd-compressed at rest".
@@ -521,3 +532,93 @@ Resolves 001 open question 1 (process names no longer required) and question 2 (
 1. Rough file count of `_forever_` AddOns + WTF (right-click → Properties shows "Contains: N files"), to tune pack size and threads.
 2. Approximate home upload speed on the desktop and download speed on the laptop, to sanity-check the first-sync time estimate.
 3. Remaining from 001: questions 3 (textures), 4 (folder deletions), 5 (port). From 002: question 2 (multiple servers).
+
+---
+
+## Entry 004 — 2026-11-07 — Measured file profile, pack types, per-type compression, object sharding, flavor detection
+Status: Planned
+Supersedes: 001 §9 pack and compression rules, 001 §10 object path layout, 003 §2 compression list. Extends 001 §4 profile detection, 001 §6/§8 status flow.
+
+### Summary
+
+The dev machine's `_forever_` AddOns + WTF were measured by file type. About **31,300 files, ~3.2 GB**. Audio is 70% of the bytes but is made of small clips, so the dominant cost is per-file overhead, not single huge files. Packs become the main transfer path, and they are split into **compressed packs** (text and uncompressed images) and **raw packs** (audio and already-compressed images). Resolves 001 open questions 2 and 3, and 003 open question 1.
+
+### 1. Measured profile (dev machine, `_forever_`, 2026-11-07)
+
+| Type | Files | Total MB | Largest MB | Notes |
+|---|---:|---:|---:|---|
+| `.ogg` | 15,980 | 1,440.6 | 0.7 | already compressed audio |
+| `.mp3` | 1,986 | 785.9 | 1.1 | already compressed audio |
+| `.tga` | 3,708 | 478.2 | 27.0 | often uncompressed; compresses well |
+| `.blp` | 1,562 | 227.0 | 5.3 | WoW texture; often DXT-compressed |
+| `.lua` | 6,575 | 220.0 | 18.2 | code + SavedVariables; compresses very well |
+| `.toc` | 313 | 29.4 | 14.5 | one unusually large `.toc`; handled like any text file |
+| `.ttf` / `.otf` | 66 | 14.9 | 3.3 | fonts; compress moderately |
+| `.jpg` / `.png` | 257 | 18.7 | 1.0 | already compressed |
+| `.xml`, `.txt`, `.md`, other text | ~1,200 | ~5 | 0.2 | compresses very well |
+| `.bak` / `.old` | 106 | 5.9 | 4.6 | outside WTF these are synced like any file |
+
+Takeaways:
+
+- Audio is ~2.2 GB but in ~18,000 files, all under 1.1 MB. It goes through packs, not the large-file path.
+- Fewer than ~20 files exceed the 4 MB large-file threshold (big `.tga`, a few SavedVariables `.lua`, the large `.toc`, some `.blp`). The threshold stays at 4 MB.
+- An 18 MB SavedVariables `.lua` exists, which confirms delta sync (001 §17) is worth doing in Phase 2.
+
+### 2. Two pack types (supersedes 001 §9 pack rule)
+
+- **Compressed pack:** one zstd stream (level 3) holding an index plus concatenated file bytes, ~8 MB uncompressed per pack. Used for text and compressible binaries.
+- **Raw pack:** index plus concatenated bytes, no compression, ~16 MB per pack. Used for audio and already-compressed files.
+- A pack never mixes the two kinds. The pack header records its type.
+- Within a pack, files are sorted by extension, then path, so similar content sits together (better compression and cache locality).
+- **Scheduling order across data connections:** large files first, then raw packs and compressed packs interleaved, so CPU (compression) and network stay busy at the same time.
+- Packs remain transport only. The receiver splits them and stores each file as its own object.
+
+### 3. Per-type compression (supersedes 001 §9 and 003 §2 lists)
+
+| Category | Extensions | In transit | At rest on server |
+|---|---|---|---|
+| Already compressed | `.ogg`, `.mp3`, `.m4a`, `.aac`, `.flac`, `.opus`, `.jpg`, `.jpeg`, `.png`, `.zip`, `.gz`, `.7z`, `.rar` | raw pack | raw |
+| Text | `.lua`, `.toc`, `.xml`, `.txt`, `.md`, `.html`, `.css`, `.json`, `.wtf`, `.textile`, `.pkgmeta`, `.md5`, `.log`, `.bak`, `.old`, no extension | compressed pack | zstd |
+| Compressible binary | `.tga`, `.ttf`, `.otf`, `.wav`, `.m2` | compressed pack | zstd |
+| Unsure | `.blp` and any unknown extension | sample test | per sample test |
+
+**Sample test:** compress the first 256 KB of the file at zstd level 1. If that saves under 5%, treat the file as already compressed (raw pack, raw at rest); otherwise compressed. Cache the result per hash so the test runs once per unique file.
+
+### 4. First scan and hashing
+
+- The first status check hashes ~3.2 GB across ~31,000 files. Use one hashing thread per CPU core (capped at 8) and show "Scanning files: N of M" in the UI.
+- After that, the hash cache (001 §7) makes status checks near-instant.
+
+### 5. Object store sharding (supersedes 001 §10 path layout)
+
+- Objects are stored at `objects/<hash[0..2]>/<hash[2..4]>/<sha256>` (two levels, 65,536 buckets) so no directory grows too large with tens of thousands of objects per profile.
+- Each object has a small header: magic, version, codec (`raw`, `zstd`, `deflate`), original size.
+
+### 6. Manifest size and the status flow (refines 001 §6, §8)
+
+- A full manifest is ~31,000 entries (about 3–4 MB of JSON, roughly 0.5 MB after zstd). That is fine to send during push and pull, but too heavy to send on every status check.
+- **Manifest fingerprint:** SHA-256 over the sorted `path|size|hash` lines. Every snapshot stores its fingerprint.
+- **Status check sends only fingerprints:** the client sends its local fingerprint and its base snapshot id; the server replies with head id, head metadata, and head fingerprint. The three-way table in 001 §8 is evaluated from these alone. Full manifests are only exchanged when the user actually pushes, pulls, or opens the conflict details.
+- **Push when base == head:** the client sends only the entries that differ from its base manifest (added, changed, removed). The server applies them to head to build the new snapshot. Falls back to a full manifest if base ≠ head.
+
+### 7. Flavor folder detection (extends 001 §4)
+
+- A subfolder of the install root counts as a flavor folder if it contains a `.flavor.info` file or a `Wow*.exe` (Windows) / `World of Warcraft*.app` (macOS), plus a `WTF` or `Interface` folder. Folders that match `_*_` but have none of these markers are listed with a "not a WoW install?" note.
+- The profile name defaults to the folder name with underscores trimmed (`_forever_` → `forever`), editable by the user. The server-side profile id stays fixed after creation, so renaming the label never splits history.
+- `.flavor.info` contents are not parsed in v1 (format undocumented); its presence is the marker.
+
+### Changes
+
+- [ ] `common`: pack format with type header (compressed / raw), index, sorted entries (§2).
+- [ ] `common`: per-type compression table and the cached 256 KB sample test (§3).
+- [ ] `common` + `server`: object header (magic, version, codec, size); two-level shard paths (§5).
+- [ ] `client` + `server`: scheduler that orders large files first, then interleaves raw and compressed packs (§2).
+- [ ] `common`: manifest fingerprint; snapshots store it (§6).
+- [ ] `client` + `server`: fingerprint-only status check; delta manifest on push when base == head (§6).
+- [ ] `client`: parallel first-scan hashing with progress (§4).
+- [ ] `client`: flavor detection via `.flavor.info` / `Wow*.exe` markers; profile label vs fixed profile id (§7).
+
+### Open questions
+
+1. Approximate upload speed on the desktop and download speed on the laptop (for the first-sync ETA text).
+2. Remaining: 001 question 4 (folder deletions) and 5 (port), 002 question 2 (multiple servers).
