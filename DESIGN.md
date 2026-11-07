@@ -26,7 +26,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 | 4 | Server foundation: data folder, database, install scripts | Done |
 | 5 | Server networking, login, accounts, invites | Done |
 | 6 | Server storage, push, pull, quotas | Done |
-| 7 | Client foundation: data, Connections, login, main window | Not started |
+| 7 | Client foundation: data, Connections, login, main window | Done |
 | 8 | Client scanning, addon grouping, local manager | Not started |
 | 9 | Client sync: status, push, selective pull | Not started |
 | 10 | Client admin: accounts, invites, password reset | Not started |
@@ -485,10 +485,10 @@ Each phase: compile-clean, `dist/` produced, checklist ticked, status table upda
 - [x] Pull: plan from selection and mode, `FETCH`, pack and chunk send, range resume.
 
 ### Phase 7 — Client foundation
-- [ ] `wow-ui-sync-data/` with `client.json`, `client.db` (schema + migrations), client log.
-- [ ] FlatLaf main window shell (§17.3), Settings, About.
-- [ ] Connections manager and Connect screen; fingerprint pinning; password and key-file login with passphrase prompt (§17.2).
-- [ ] Install root picker and flavor detection (Forever enabled only); WoW-running detection (§16).
+- [x] `wow-ui-sync-data/` with `client.json`, `client.db` (schema + migrations), client log.
+- [x] FlatLaf main window shell (§17.3), Settings, About.
+- [x] Connections manager and Connect screen; fingerprint pinning; password and key-file login with passphrase prompt (§17.2).
+- [x] Install root picker and flavor detection (Forever enabled only); WoW-running detection (§16).
 
 ### Phase 8 — Client scanning, addon grouping, local manager
 - [ ] Scanner with hash cache and progress; local fingerprint.
