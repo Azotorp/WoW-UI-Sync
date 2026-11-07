@@ -137,6 +137,9 @@ public final class ProgressPanel extends JPanel {
     public void idle() {
         control = null;
         title.setText("No transfer running.");
+        files.setText(" ");
+        bytes.setText(" ");
+        speed.setText(" ");
         bar.setIndeterminate(false);
         bar.setValue(0);
         pause.setEnabled(false);

@@ -30,7 +30,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 | 8 | Client scanning, addon grouping, local manager | Done |
 | 9 | Client sync: status, push, selective pull | Done |
 | 10 | Client admin: accounts, invites, password reset | Done |
-| 11 | Release packaging and docs | Not started |
+| 11 | Release packaging and docs | Done |
 | 12 | Test pass (manual, by the owner) | Not started |
 
 ---
@@ -507,9 +507,9 @@ Each phase: compile-clean, `dist/` produced, checklist ticked, status table upda
 - [x] My account; Forgot password flow (§7).
 
 ### Phase 11 — Release packaging and docs
-- [ ] `release.yml` and zip contents (§19).
-- [ ] Full README (§21).
-- [ ] Final consistency pass: defaults (§20), messages, disclaimers.
+- [x] `release.yml` and zip contents (§19).
+- [x] Full README (§21).
+- [x] Final consistency pass: defaults (§20), messages, disclaimers.
 
 ### Phase 12 — Test pass (owner)
 Manual checklist: install on the Ubuntu server; connect as root by key; push Forever (~3.2 GB) and interrupt/resume; status on a second PC; selective pull without the voice pack; backups list, restore, and undo restore; create superuser and user, invite redeem, quotas, lockout, password reset email; server upgrade with migration; WoW-running blocks.

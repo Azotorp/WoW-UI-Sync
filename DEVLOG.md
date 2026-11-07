@@ -68,9 +68,9 @@ Supersedes: 00X §Y, … (or "nothing")
 | 005 | Accounts and roles, install-time root, connections, local manager, mirror push, selective pull, local backups | Consolidated into DESIGN.md |
 | 006 | Open questions resolved, consolidation decisions | Consolidated into DESIGN.md |
 
-**Code state:** nothing implemented yet. The repo contains `DEVLOG.md` and `DESIGN.md`.
+**Code state:** `DESIGN.md` Phases 1–11 are built (Maven reactor `common` → `server` → `client`, jars in `dist/`). See the Phase status table in `DESIGN.md`.
 
-**Next step:** build from **`DESIGN.md`**, starting at its Phase 1. Track progress in the Phase status table in `DESIGN.md`, not here. The `Changes` checklists in entries 002–005 are historical; `DESIGN.md` §24 replaces them.
+**Next step:** `DESIGN.md` Phase 12, the manual test pass by the owner. Track progress in the Phase status table in `DESIGN.md`, not here. The `Changes` checklists in entries 002–005 are historical; `DESIGN.md` §24 replaces them.
 
 ---
 
