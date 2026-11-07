@@ -24,7 +24,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 | 2 | Common core: models, paths, hashing, codecs | Done |
 | 3 | Common core: packs, objects, protocol | Done |
 | 4 | Server foundation: data folder, database, install scripts | Done |
-| 5 | Server networking, login, accounts, invites | Not started |
+| 5 | Server networking, login, accounts, invites | Done |
 | 6 | Server storage, push, pull, quotas | Not started |
 | 7 | Client foundation: data, Connections, login, main window | Not started |
 | 8 | Client scanning, addon grouping, local manager | Not started |
@@ -473,10 +473,10 @@ Each phase: compile-clean, `dist/` produced, checklist ticked, status table upda
 - [x] Scripts: `install`, `reset-root`, `start`, `stop` (`.sh` and `.bat`), stop-flag watcher, systemd unit.
 
 ### Phase 5 — Server networking, login, accounts, invites
-- [ ] TLS listener, control and data connections, sessions, `HELLO` with version check, `DATA_JOIN`, `PING`.
-- [ ] Password and key login; lockout and IP blocking (§7).
-- [ ] Permission checks (§6); account messages incl. caps and quotas; superuser deletion reassigns users.
-- [ ] Invites (§8); SMTP sender and reset codes (§7).
+- [x] TLS listener, control and data connections, sessions, `HELLO` with version check, `DATA_JOIN`, `PING`.
+- [x] Password and key login; lockout and IP blocking (§7).
+- [x] Permission checks (§6); account messages incl. caps and quotas; superuser deletion reassigns users.
+- [x] Invites (§8); SMTP sender and reset codes (§7).
 
 ### Phase 6 — Server storage, push, pull, quotas
 - [ ] Object store per account/profile; `current.manifest`; atomic commit; GC; `profile_state` (§9).

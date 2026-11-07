@@ -2,6 +2,17 @@ package io.github.azotorp.wowuisync.server;
 
 import io.github.azotorp.wowuisync.common.Version;
 import io.github.azotorp.wowuisync.common.codec.Codec;
+import io.github.azotorp.wowuisync.common.crypto.CertFingerprint;
+import io.github.azotorp.wowuisync.server.net.ConnectionHandler;
+import io.github.azotorp.wowuisync.server.net.Listener;
+import io.github.azotorp.wowuisync.server.net.ServerContext;
+import io.github.azotorp.wowuisync.server.service.AccountService;
+import io.github.azotorp.wowuisync.server.service.AuthService;
+import io.github.azotorp.wowuisync.server.service.InviteService;
+import io.github.azotorp.wowuisync.server.service.LoginGuard;
+import io.github.azotorp.wowuisync.server.service.ResetService;
+import io.github.azotorp.wowuisync.server.sync.Storage;
+import io.github.azotorp.wowuisync.server.sync.SyncService;
 import io.github.azotorp.wowuisync.server.config.ConfigIO;
 import io.github.azotorp.wowuisync.server.config.DataLayout;
 import io.github.azotorp.wowuisync.server.config.ServerConfig;
@@ -15,10 +26,11 @@ import java.security.KeyStore;
 import java.util.concurrent.CountDownLatch;
 import java.util.logging.Level;
 
-/** The running server: startup checks, stop-flag watcher, and (from Phase 5) the network listener. */
+/** The running server: startup checks, network listener, stop-flag watcher, housekeeping. */
 public final class ServerApp {
     private final DataLayout layout;
     private final CountDownLatch stopped = new CountDownLatch(1);
+    private final CountDownLatch shutdownDone = new CountDownLatch(1);
     private volatile boolean stopping;
 
     public ServerApp(DataLayout layout) {
@@ -52,16 +64,53 @@ public final class ServerApp {
                 Logs.LOG.severe("No root account. Run install.");
                 return 1;
             }
-            Runtime.getRuntime().addShutdownHook(new Thread(this::requestStop, "shutdown"));
+            ServerContext ctx = new ServerContext(layout, cfg, db, TlsKeys.serverContext(ks), fingerprint);
+            Storage storage = new Storage(layout);
+            LoginGuard guard = new LoginGuard(ctx);
+            AccountService accounts = new AccountService(ctx, storage);
+            ConnectionHandler.Services services = new ConnectionHandler.Services(new AuthService(ctx, guard), accounts,
+                    new InviteService(ctx, accounts, guard), new ResetService(ctx, guard), new SyncService(ctx, storage));
+            Listener listener = new Listener(ctx, services);
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                requestStop();
+                try {
+                    shutdownDone.await(15, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                    // exit
+                }
+            }, "shutdown"));
             Thread watcher = Thread.ofPlatform().daemon().name("stop-flag").start(this::watchStopFlag);
-            Logs.LOG.info("TLS certificate SHA-256: " + fingerprint);
+            Thread housekeeping = Thread.ofPlatform().daemon().name("housekeeping").start(() -> housekeeping(ctx));
+            listener.start();
+            Logs.LOG.info("TLS certificate SHA-256: " + CertFingerprint.pretty(fingerprint));
+            Logs.LOG.info("SMTP password reset: " + (ctx.smtp.enabled() ? "enabled" : "disabled"));
             stopped.await();
+            ctx.setStopping();
+            listener.close();
+            ctx.sessions.closeAll();
+            listener.awaitConnections(10_000);
             watcher.interrupt();
+            housekeeping.interrupt();
             Logs.LOG.info("Server stopped");
+            shutdownDone.countDown();
             return 0;
         } catch (Exception e) {
             Logs.LOG.log(Level.SEVERE, "Server failed: " + e.getMessage(), e);
             return 1;
+        }
+    }
+
+    private void housekeeping(ServerContext ctx) {
+        while (!stopping) {
+            try {
+                ctx.db.pruneIpFailures();
+                ctx.db.deleteExpiredInvites();
+                Thread.sleep(10 * 60_000L);
+            } catch (InterruptedException e) {
+                return;
+            } catch (Exception e) {
+                Logs.LOG.warning("Housekeeping failed: " + e.getMessage());
+            }
         }
     }
 
