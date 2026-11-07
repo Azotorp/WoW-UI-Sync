@@ -61,20 +61,21 @@ Supersedes: 00X §Y, … (or "nothing")
 
 | Entry | Title | Status |
 |---|---|---|
-| 001 | Initial design draft | Planned |
-| 002 | Cross-platform support, home and local servers, AI working rules | Planned |
-| 003 | Path-based WoW detection, large audio-heavy profiles, resumable transfers | Planned |
-| 004 | Measured file profile, pack types, per-type compression, object sharding, flavor detection | Planned |
-| 005 | Accounts and roles, install-time root, connections, local manager, mirror push, selective pull, local backups | Planned |
+| 001 | Initial design draft | Consolidated into DESIGN.md |
+| 002 | Cross-platform support, home and local servers, AI working rules | Consolidated into DESIGN.md |
+| 003 | Path-based WoW detection, large audio-heavy profiles, resumable transfers | Consolidated into DESIGN.md |
+| 004 | Measured file profile, pack types, per-type compression, object sharding, flavor detection | Consolidated into DESIGN.md |
+| 005 | Accounts and roles, install-time root, connections, local manager, mirror push, selective pull, local backups | Consolidated into DESIGN.md |
+| 006 | Open questions resolved, consolidation decisions | Consolidated into DESIGN.md |
 
-**Code state:** nothing implemented yet. The repo contains only this file.
+**Code state:** nothing implemented yet. The repo contains `DEVLOG.md` and `DESIGN.md`.
 
-**Next step:** resolve the open questions in Entry 005, then consolidate 001–005 into `DESIGN.md` with a phased build plan. Do not start coding from the entries directly.
+**Next step:** build from **`DESIGN.md`**, starting at its Phase 1. Track progress in the Phase status table in `DESIGN.md`, not here. The `Changes` checklists in entries 002–005 are historical; `DESIGN.md` §24 replaces them.
 
 ---
 
 ## Entry 001 — 2026-11-07 — Initial design draft
-Status: Planned
+Status: Consolidated into DESIGN.md
 Supersedes: nothing
 
 ### 1. Goal
@@ -405,7 +406,7 @@ dist/
 
 ### 18. Phases
 
-> ⚠️ Superseded: phases will be defined in `DESIGN.md` during consolidation (see Rules).
+> ⚠️ Superseded: phases are defined in `DESIGN.md` §24.
 
 1. **Phase 1 (first test):** server with storage and snapshots; client with settings, status, push, pull, packs, zstd, parallel connections, local backups, WoW-running check; build + CI artifacts.
 2. **Phase 2:** history UI, restore any version, undo button polish, Sync All, delta sync.
@@ -431,7 +432,7 @@ dist/
 ---
 
 ## Entry 002 — 2026-11-07 — Cross-platform support, home and local servers, AI working rules
-Status: Planned
+Status: Consolidated into DESIGN.md
 Supersedes: 001 §2 (platform targets, in part), 001 §4 (path casing rule). Extends 001 §8, §14, §15.
 
 ### Summary
@@ -509,7 +510,7 @@ Both jars run on Windows, Linux, and macOS, in any combination (e.g. Windows cli
 ---
 
 ## Entry 003 — 2026-11-07 — Path-based WoW detection, large audio-heavy profiles, resumable transfers
-Status: Planned
+Status: Consolidated into DESIGN.md
 Supersedes: 001 §8 WoW-running check and 002 §5 (name matching becomes the fallback). Extends 001 §6, §9, §10, §18.
 
 ### Summary
@@ -571,7 +572,7 @@ Resolves 001 open question 1 (process names no longer required) and question 2 (
 ---
 
 ## Entry 004 — 2026-11-07 — Measured file profile, pack types, per-type compression, object sharding, flavor detection
-Status: Planned
+Status: Consolidated into DESIGN.md
 Supersedes: 001 §9 pack and compression rules, 001 §10 object path layout, 003 §2 compression list. Extends 001 §4 profile detection, 001 §6/§8 status flow.
 
 ### Summary
@@ -661,7 +662,7 @@ Takeaways:
 ---
 
 ## Entry 005 — 2026-11-07 — Accounts and roles, install-time root, connections, local manager, mirror push, selective pull, local backups
-Status: Planned
+Status: Consolidated into DESIGN.md
 Supersedes: 001 §1 (snapshot per sync), §6 (port 47811, token auth), §10 (folder layout, history, retention), §11, §12, §14, §15 (console), §17 (Account mode), §18 (phases); 002 §2 (port, token auto-detect). Extends 001 §4, §8, §13; 003 §1.
 
 ### Summary
@@ -861,8 +862,36 @@ Resolves 001 open questions 4 (push mirrors deletions) and 5 (port is 2026), and
 
 ### Open questions
 
+> ⚠️ All resolved by 006 §1.
+
 1. **Accounts and game versions:** does one account hold one copy per flavor (Forever, Anniversary, Era each stored under the same account), or should each flavor be its own account? Current assumption: one copy per account **per profile**.
 2. **Storage limits:** should root be able to cap disk space per account (and per superuser group)?
 3. **Login protection:** lockout or backoff after repeated failed logins (per account and per IP)? Suggested: 5 failures → 15-minute lock, plus per-IP rate limiting.
 4. **Server upgrades:** how to install a new server version without losing data (replace the jar, keep the data folder, automatic SQLite schema migrations, and a version check between client and server).
 5. When the design is declared complete: consolidate 001–005 into `DESIGN.md` with phases sized for usage sessions (see Rules).
+
+---
+
+## Entry 006 — 2026-11-07 — Open questions resolved, consolidation decisions
+Status: Consolidated into DESIGN.md
+Supersedes: nothing (resolves 005 open questions; fills gaps found while writing `DESIGN.md`).
+
+### Summary
+
+All open questions are answered and the design is declared complete. Everything from 001–006 is consolidated into **`DESIGN.md`**, which is now the spec to build from, with a 12-phase build plan (11 build phases plus an owner test pass).
+
+### 1. Answers to 005 open questions
+
+1. **Game versions:** one account holds a separate current copy per profile (Forever, Anniversary, Era). **v1 enables Forever only**; other flavors are detected but shown as "Coming later". Enabling one later is adding its profile id to an allowlist in `common`.
+2. **Storage limits:** per-account cap in **megabytes**, default **unlimited**, set by root (any account) or a superuser (its users). Optional group cap on a superuser covering itself and its users, set by root. Checked before a push uploads anything, with a clear "needs X MB, limit Y MB" message.
+3. **Login protection:** 5 failed logins lock an account for 15 minutes. More than 20 failures (logins, invite redemptions, reset codes) from one IP in 10 minutes block that IP for 15 minutes.
+4. **Upgrades:** stop, replace the jar, start. On startup the server copies the database to `db-backups/` and runs schema migrations if needed. `HELLO` carries protocol and app versions; incompatible versions get a clear "please update" message.
+
+### 2. Decisions made while consolidating
+
+- **Base after pulls:** base is set after a push, and after pulling the **same** account with everything selected in Replace mode. Any other pull or a restore clears bases for that flavor folder; status then shows "Different from the server" with no recommendation.
+- **Pull plan:** the client groups the source's addons by downloading the source's `.toc` files first; the selection is sent to the server as lists of top-level addon folder names (addons and data) plus the general-settings flag and mode. Grouping, data mapping, and plan rules live in `common` so client and server agree.
+- **Free-space check** before every local backup copy.
+- **Reset codes:** 5 wrong attempts invalidate a code; responses never reveal whether a username or email exists.
+- **Java package root:** `io.github.azotorp.wowuisync`.
+- **Monetization:** donations only for now (e.g. GitHub Sponsors), wording to be written later; no paid features in this repo.
