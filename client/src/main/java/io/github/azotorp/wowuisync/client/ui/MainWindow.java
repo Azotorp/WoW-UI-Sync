@@ -313,11 +313,16 @@ public final class MainWindow extends JFrame {
     }
 
     void onBackups() {
-        Dialogs.info(this, "Backups are not available yet.");
+        if (app.flavor() == null) return;
+        if (BackupsDialog.show(this, app, app.flavor())) {
+            updateFromApp();
+            refreshStatus();
+        }
     }
 
     void onAddons() {
-        Dialogs.info(this, "The addon manager is not available yet.");
+        if (app.flavor() == null) return;
+        if (AddonsDialog.show(this, app, app.flavor())) refreshStatus();
     }
 
     void onAccounts() {

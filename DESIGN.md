@@ -27,7 +27,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 | 5 | Server networking, login, accounts, invites | Done |
 | 6 | Server storage, push, pull, quotas | Done |
 | 7 | Client foundation: data, Connections, login, main window | Done |
-| 8 | Client scanning, addon grouping, local manager | Not started |
+| 8 | Client scanning, addon grouping, local manager | Done |
 | 9 | Client sync: status, push, selective pull | Not started |
 | 10 | Client admin: accounts, invites, password reset | Not started |
 | 11 | Release packaging and docs | Not started |
@@ -491,9 +491,9 @@ Each phase: compile-clean, `dist/` produced, checklist ticked, status table upda
 - [x] Install root picker and flavor detection (Forever enabled only); WoW-running detection (§16).
 
 ### Phase 8 — Client scanning, addon grouping, local manager
-- [ ] Scanner with hash cache and progress; local fingerprint.
-- [ ] Addons view using `common` grouping; delete addon / delete data with backup.
-- [ ] Local backups (§18): copy with free-space check, naming, DB records, folder-name parsing fallback, Backups view, manual backup, restore, delete.
+- [x] Scanner with hash cache and progress; local fingerprint.
+- [x] Addons view using `common` grouping; delete addon / delete data with backup.
+- [x] Local backups (§18): copy with free-space check, naming, DB records, folder-name parsing fallback, Backups view, manual backup, restore, delete.
 
 ### Phase 9 — Client sync
 - [ ] Status badge and line (§11.3), base handling.
