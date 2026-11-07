@@ -23,7 +23,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 | 1 | Project skeleton and CI | Done |
 | 2 | Common core: models, paths, hashing, codecs | Done |
 | 3 | Common core: packs, objects, protocol | Done |
-| 4 | Server foundation: data folder, database, install scripts | Not started |
+| 4 | Server foundation: data folder, database, install scripts | Done |
 | 5 | Server networking, login, accounts, invites | Not started |
 | 6 | Server storage, push, pull, quotas | Not started |
 | 7 | Client foundation: data, Connections, login, main window | Not started |
@@ -465,12 +465,12 @@ Each phase: compile-clean, `dist/` produced, checklist ticked, status table upda
 - [x] Addon grouping, data mapping, general-settings rules, and pull-plan rules (§12.2, §15) as pure functions.
 
 ### Phase 4 — Server foundation
-- [ ] `server.json` model; data folder resolution; logging to `logs/server.log`.
-- [ ] SQLite schema, `schema_version`, migration runner with pre-migration DB backup (§5.3, §5.6).
-- [ ] Permission lockdown (§5.5).
-- [ ] TLS keystore generation and fingerprint.
-- [ ] `install` and `reset-root` subcommands (§5.4), key validation (BouncyCastle), PBKDF2.
-- [ ] Scripts: `install`, `reset-root`, `start`, `stop` (`.sh` and `.bat`), stop-flag watcher, systemd unit.
+- [x] `server.json` model; data folder resolution; logging to `logs/server.log`.
+- [x] SQLite schema, `schema_version`, migration runner with pre-migration DB backup (§5.3, §5.6).
+- [x] Permission lockdown (§5.5).
+- [x] TLS keystore generation and fingerprint.
+- [x] `install` and `reset-root` subcommands (§5.4), key validation (BouncyCastle), PBKDF2.
+- [x] Scripts: `install`, `reset-root`, `start`, `stop` (`.sh` and `.bat`), stop-flag watcher, systemd unit.
 
 ### Phase 5 — Server networking, login, accounts, invites
 - [ ] TLS listener, control and data connections, sessions, `HELLO` with version check, `DATA_JOIN`, `PING`.

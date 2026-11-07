@@ -1,0 +1,25 @@
+# Optional systemd unit for Linux.
+# 1. Create an unprivileged user:     sudo useradd --system --create-home --shell /usr/sbin/nologin wowuisync
+# 2. Put the jar in /opt/wow-ui-sync and run install as that user:
+#      sudo -u wowuisync java -jar /opt/wow-ui-sync/wow-ui-sync-server.jar install
+# 3. Copy this file to /etc/systemd/system/, then:
+#      sudo systemctl daemon-reload && sudo systemctl enable --now wow-ui-sync
+[Unit]
+Description=WoW UI Sync server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wowuisync
+Group=wowuisync
+WorkingDirectory=/opt/wow-ui-sync
+ExecStart=/usr/bin/java -jar /opt/wow-ui-sync/wow-ui-sync-server.jar run
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
