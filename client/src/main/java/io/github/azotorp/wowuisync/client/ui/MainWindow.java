@@ -56,6 +56,7 @@ public final class MainWindow extends JFrame {
     final JButton settings = new JButton("Settings");
     final JButton about = new JButton("About");
     private boolean updating;
+    private final SyncController sync;
 
     /** Account combo entry. */
     record AccountItem(Msg.AccountInfo info) {
@@ -68,6 +69,7 @@ public final class MainWindow extends JFrame {
     public MainWindow(ClientApp app) {
         super(Version.APP_NAME);
         this.app = app;
+        this.sync = new SyncController(this, app);
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -298,18 +300,19 @@ public final class MainWindow extends JFrame {
     // ------------------------------------------------------------------ actions (filled in by later phases)
 
     void refreshStatus() {
-        if (!app.connected() || app.flavor() == null || app.targetAccount() == null) return;
-        showStatus(StatusView.message("Status not available yet", Theme.GRAY, ""));
+        sync.refreshStatus();
     }
 
-    void showDetails() {}
+    void showDetails() {
+        sync.showDetails();
+    }
 
     void onPush() {
-        Dialogs.info(this, "Push is not available yet.");
+        sync.push();
     }
 
     void onPull() {
-        Dialogs.info(this, "Pull is not available yet.");
+        sync.pull();
     }
 
     void onBackups() {

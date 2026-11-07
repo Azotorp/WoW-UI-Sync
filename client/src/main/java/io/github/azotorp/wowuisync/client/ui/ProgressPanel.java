@@ -25,28 +25,7 @@ public final class ProgressPanel extends JPanel {
     private volatile Control control;
 
     /** Pause/cancel flags read by the transfer. */
-    public static final class Control {
-        private volatile boolean paused;
-        private volatile boolean cancelled;
-
-        public boolean paused() { return paused; }
-        public boolean cancelled() { return cancelled; }
-        public void setPaused(boolean p) { paused = p; }
-        public void cancel() { cancelled = true; }
-
-        /** Blocks while paused; throws if cancelled. */
-        public void checkpoint() throws io.github.azotorp.wowuisync.client.util.CancelledException {
-            while (paused && !cancelled) {
-                try {
-                    Thread.sleep(200);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new io.github.azotorp.wowuisync.client.util.CancelledException();
-                }
-            }
-            if (cancelled) throw new io.github.azotorp.wowuisync.client.util.CancelledException();
-        }
-    }
+    public static final class Control extends io.github.azotorp.wowuisync.client.sync.TransferControl {}
 
     public ProgressPanel() {
         super(new BorderLayout(0, 6));
@@ -78,6 +57,18 @@ public final class ProgressPanel extends JPanel {
             if (c != null) c.cancel();
         });
         idle();
+    }
+
+    /** Pauses from the transfer itself (e.g. connection lost), showing {@code why}; the user presses Resume. */
+    public void pauseFromEngine(String why) {
+        Control c = control;
+        if (c == null) return;
+        c.setPaused(true);
+        SwingUtilities.invokeLater(() -> {
+            pause.setText("Resume");
+            pause.setEnabled(true);
+            note.setText(why);
+        });
     }
 
     /** Starts showing a new operation. */

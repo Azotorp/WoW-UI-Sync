@@ -30,6 +30,12 @@
       <artifactId>flatlaf</artifactId>
     </dependency>
     <dependency>
+      <groupId>io.github.azotorp.wowuisync</groupId>
+      <artifactId>wow-ui-sync-server</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
     </dependency>

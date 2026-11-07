@@ -28,7 +28,7 @@ This document is the **single current spec**. It consolidates `DEVLOG.md` entrie
 | 6 | Server storage, push, pull, quotas | Done |
 | 7 | Client foundation: data, Connections, login, main window | Done |
 | 8 | Client scanning, addon grouping, local manager | Done |
-| 9 | Client sync: status, push, selective pull | Not started |
+| 9 | Client sync: status, push, selective pull | Done |
 | 10 | Client admin: accounts, invites, password reset | Not started |
 | 11 | Release packaging and docs | Not started |
 | 12 | Test pass (manual, by the owner) | Not started |
@@ -496,10 +496,10 @@ Each phase: compile-clean, `dist/` produced, checklist ticked, status table upda
 - [x] Local backups (§18): copy with free-space check, naming, DB records, folder-name parsing fallback, Backups view, manual backup, restore, delete.
 
 ### Phase 9 — Client sync
-- [ ] Status badge and line (§11.3), base handling.
-- [ ] Transfer engine client side: data connections, scheduler, pack building, chunking, resume, backoff, Pause/Resume, progress and ETA (§11.5).
-- [ ] Push flow with warnings, review dialog, typed confirmation (§11.4).
-- [ ] Selective pull: source manifest, `.toc` fetch, selection window, modes, plan, review, backup, download, apply, rescan note (§12).
+- [x] Status badge and line (§11.3), base handling.
+- [x] Transfer engine client side: data connections, scheduler, pack building, chunking, resume, backoff, Pause/Resume, progress and ETA (§11.5).
+- [x] Push flow with warnings, review dialog, typed confirmation (§11.4).
+- [x] Selective pull: source manifest, `.toc` fetch, selection window, modes, plan, review, backup, download, apply, rescan note (§12).
 
 ### Phase 10 — Client admin
 - [ ] Accounts panel: list, create, credentials, email, quotas, caps, delete (§17.5).

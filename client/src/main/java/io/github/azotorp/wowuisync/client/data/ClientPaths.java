@@ -25,4 +25,7 @@ public record ClientPaths(Path root) {
     public Path dbBackups() { return root.resolve("db-backups"); }
     public Path partial() { return root.resolve("partial"); }
     public Path logs() { return root.resolve("logs"); }
+    public Path bases() { return root.resolve("bases"); }
+    /** Completed downloaded objects waiting to be applied. */
+    public Path stagedObjects() { return partial().resolve("objects"); }
 }
