@@ -255,6 +255,9 @@ the server until you `systemctl start` it again.
 
 - **"Permission denied" in the log**: something was created as root. Run
   `sudo chown -R wowuisync:wowuisync /opt/wow-ui-sync /opt/wow-ui-sync-data`, then `sudo systemctl restart wow-ui-sync`.
+- **Missed the TLS fingerprint during install**: the server logs it at every start. Run
+  `sudo journalctl -u wow-ui-sync | grep "TLS certificate"` or
+  `sudo grep "TLS certificate" /opt/wow-ui-sync-data/logs/server.log*`.
 - **"This data folder already has a root account"**: the install already finished. Use `reset-root` to change root's credentials.
 - **The client cannot connect**: check that `sudo ss -tlnp | grep 2026` shows Java listening, then check ufw and your hosting
   provider's firewall.
