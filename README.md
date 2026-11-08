@@ -17,15 +17,16 @@ This version syncs the **Forever** game flavor (`_forever_`). Other flavors are 
 
 1. [Requirements](#requirements)
 2. [Server: install](#server-install)
-3. [Server: running and stopping](#server-running-and-stopping)
-4. [Server: upgrading](#server-upgrading)
-5. [Server: resetting root](#server-resetting-root)
-6. [Server: password reset emails (SMTP)](#server-password-reset-emails-smtp)
-7. [Keys and security advice](#keys-and-security-advice)
-8. [Client walkthrough](#client-walkthrough)
-9. [Disk space](#disk-space)
-10. [Building from source](#building-from-source)
-11. [License and disclaimer](#license-and-disclaimer)
+3. [Server: step-by-step on Ubuntu 24.04 (systemd service)](#server-step-by-step-on-ubuntu-2404-systemd-service)
+4. [Server: running and stopping](#server-running-and-stopping)
+5. [Server: upgrading](#server-upgrading)
+6. [Server: resetting root](#server-resetting-root)
+7. [Server: password reset emails (SMTP)](#server-password-reset-emails-smtp)
+8. [Keys and security advice](#keys-and-security-advice)
+9. [Client walkthrough](#client-walkthrough)
+10. [Disk space](#disk-space)
+11. [Building from source](#building-from-source)
+12. [License and disclaimer](#license-and-disclaimer)
 
 ---
 
@@ -54,7 +55,8 @@ The server runs headless and only writes a log. Setup is a one-time interactive 
 2. Unzip the server zip somewhere that user can read, for example `/opt/wow-ui-sync`, so you have
    `/opt/wow-ui-sync/wow-ui-sync-server.jar` and `/opt/wow-ui-sync/scripts/`.
 
-3. Run the installer as that user:
+3. Run the installer as that user (for a complete Ubuntu + systemd walkthrough, see
+   [the step-by-step guide](#server-step-by-step-on-ubuntu-2404-systemd-service)):
 
    ```sh
    sudo -u wowuisync /opt/wow-ui-sync/scripts/install.sh
@@ -89,6 +91,173 @@ The server runs headless and only writes a log. Setup is a one-time interactive 
 - **From the internet on a home connection**: forward TCP port 2026 on your router to the server PC, and use your public IP
   address or a dynamic-DNS name as the host. The public host given to `install` is what invite codes contain; to change it later,
   edit `publicHost` in `<data folder>/server.json` and restart the server.
+
+## Server: step-by-step on Ubuntu 24.04 (systemd service)
+
+A complete walkthrough for an Ubuntu 24.04 server running WoW UI Sync as a systemd service. It uses these example values;
+replace them with your own everywhere below:
+
+| What | Example | Notes |
+|---|---|---|
+| Program folder | `/opt/wow-ui-sync` | where `wow-ui-sync-server.jar` and `scripts/` live |
+| Data folder | `/opt/wow-ui-sync-data` | database, TLS certificate, stored setups |
+| Service user | `wowuisync` | any existing unprivileged user also works (for example the user that runs a game server) |
+
+> **Important:** run the installer **as the service user** (`sudo -u wowuisync …`), not as root with plain `sudo`.
+> The installer locks the data folder, keys, and database so only their owner can read them. If root runs it, root owns
+> them and the service cannot start.
+
+### 1. Install Java 21
+
+```sh
+java -version
+```
+
+If it is not 21 or newer:
+
+```sh
+sudo apt update
+sudo apt install -y openjdk-21-jre-headless
+```
+
+If several Java versions are installed (for example for a game server that needs another one), find the Java 21 binary with
+`ls /usr/lib/jvm/` (usually `/usr/lib/jvm/java-21-openjdk-amd64/bin/java`) and use that full path in step 7.
+
+### 2. Create the service user (skip if you use an existing one)
+
+```sh
+sudo useradd --system --create-home --shell /usr/sbin/nologin wowuisync
+```
+
+### 3. Put the files in place
+
+Upload the server zip to the program folder and unzip it:
+
+```sh
+sudo mkdir -p /opt/wow-ui-sync
+cd /opt/wow-ui-sync
+sudo apt install -y unzip
+sudo unzip wow-ui-sync-server-<version>.zip
+```
+
+You should now have `/opt/wow-ui-sync/wow-ui-sync-server.jar` and `/opt/wow-ui-sync/scripts/`.
+
+### 4. Give the service user ownership
+
+The installer writes `server.json` next to the jar, so the service user must be able to write both folders:
+
+```sh
+sudo mkdir -p /opt/wow-ui-sync-data
+sudo chown -R wowuisync:wowuisync /opt/wow-ui-sync /opt/wow-ui-sync-data
+sudo chmod +x /opt/wow-ui-sync/scripts/*.sh
+```
+
+### 5. Run the installer as the service user
+
+```sh
+cd /opt/wow-ui-sync
+sudo -u wowuisync java -jar /opt/wow-ui-sync/wow-ui-sync-server.jar install
+```
+
+Answers:
+
+| Prompt | Answer |
+|---|---|
+| Data folder (full path) | `/opt/wow-ui-sync-data` |
+| Port | Enter (keeps `2026`) |
+| Public host name or IP address | your server's public IP or domain name (it goes into invite codes) |
+| Public key line | paste your `.pub` line, **or** press Enter to use a password |
+| Password (only if no key) | type it twice (hidden, at least 8 characters) |
+| Email | optional, Enter to skip |
+| Start the server now? | **N** (systemd runs it) |
+
+**Copy the TLS certificate fingerprint it prints** (`AB:CD:…`). The client shows the same value on your first connection so you
+can confirm you are talking to your server. See [Keys and security advice](#keys-and-security-advice) for making a key pair.
+
+### 6. Open the port
+
+```sh
+sudo ufw allow 2026/tcp
+sudo ufw status
+```
+
+If your hosting provider also has a firewall in its control panel, open TCP 2026 there as well.
+
+### 7. Create the service
+
+```sh
+sudo nano /etc/systemd/system/wow-ui-sync.service
+```
+
+Paste the following (it is also in `scripts/wow-ui-sync.service`). Adjust the user, group, and paths, and use the full Java 21
+path from step 1 in `ExecStart` if needed:
+
+```ini
+[Unit]
+Description=WoW UI Sync server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wowuisync
+Group=wowuisync
+WorkingDirectory=/opt/wow-ui-sync
+ExecStart=/usr/bin/java -jar /opt/wow-ui-sync/wow-ui-sync-server.jar run
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Save with Ctrl+O, Enter, and exit with Ctrl+X.
+
+### 8. Start it
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now wow-ui-sync
+sudo systemctl status wow-ui-sync
+```
+
+You want `active (running)`. Follow the log and look for `Listening on 0.0.0.0:2026 (TLS 1.3)`:
+
+```sh
+sudo journalctl -u wow-ui-sync -f
+```
+
+The same log is written to `/opt/wow-ui-sync-data/logs/server.log`.
+
+### 9. Connect from your PC
+
+Run `wow-ui-sync-client.jar`, choose your WoW folder in Settings, then **Connect → New**: host = your server's IP or name,
+port `2026`, username `root`, and your password or private key file. Press **Connect**, check that the fingerprint matches the
+one from step 5, and accept.
+
+### Everyday commands
+
+| Task | Command |
+|---|---|
+| Stop | `sudo systemctl stop wow-ui-sync` |
+| Start / restart | `sudo systemctl start wow-ui-sync` / `sudo systemctl restart wow-ui-sync` |
+| Follow the log | `sudo journalctl -u wow-ui-sync -f` |
+| Reset root's password or key | `sudo -u wowuisync java -jar /opt/wow-ui-sync/wow-ui-sync-server.jar reset-root` |
+| Upgrade | stop the service, replace the jar, `sudo chown wowuisync:wowuisync` it, start the service |
+
+With systemd, stop the server with `systemctl` rather than `scripts/stop.sh`. `stop.sh` works too, but systemd will not restart
+the server until you `systemctl start` it again.
+
+### Troubleshooting
+
+- **"Permission denied" in the log**: something was created as root. Run
+  `sudo chown -R wowuisync:wowuisync /opt/wow-ui-sync /opt/wow-ui-sync-data`, then `sudo systemctl restart wow-ui-sync`.
+- **"This data folder already has a root account"**: the install already finished. Use `reset-root` to change root's credentials.
+- **The client cannot connect**: check that `sudo ss -tlnp | grep 2026` shows Java listening, then check ufw and your hosting
+  provider's firewall.
 
 ## Server: running and stopping
 
