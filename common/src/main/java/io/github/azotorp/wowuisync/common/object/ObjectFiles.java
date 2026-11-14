@@ -27,6 +27,7 @@ public final class ObjectFiles {
     private ObjectFiles() {}
 
     public static Path shardPath(Path objectsRoot, String sha256) {
+        if (!io.github.azotorp.wowuisync.common.hash.Hashing.isSha256Hex(sha256)) throw new IllegalArgumentException("Invalid object hash");
         return objectsRoot.resolve(sha256.substring(0, 2)).resolve(sha256.substring(2, 4)).resolve(sha256);
     }
 
@@ -48,6 +49,7 @@ public final class ObjectFiles {
         if (v != VERSION) throw new IOException("Unsupported object version " + v);
         Codec c = Codec.byId(d.readUnsignedByte());
         long size = d.readLong();
+        if (size < 0) throw new IOException("Negative object size");
         return new Header(c, size);
     }
 
@@ -74,10 +76,11 @@ public final class ObjectFiles {
     }
 
     public static byte[] read(Path file) throws IOException {
-        try (InputStream in = new BufferedInputStream(Files.newInputStream(file), 1 << 16)) {
-            Header h = readHeader(in);
-            byte[] body = in.readAllBytes();
-            return h.codec().decompress(body, h.originalSize());
+        Header h=header(file);
+        if(h.originalSize()>(8L<<20))throw new IOException("Use a stream for large objects");
+        try(InputStream in=openContent(file)) {
+            byte[] data=in.readNBytes((int)h.originalSize());
+            if(data.length!=h.originalSize() || in.read()!=-1)throw new IOException("Stored object length mismatch");return data;
         }
     }
 

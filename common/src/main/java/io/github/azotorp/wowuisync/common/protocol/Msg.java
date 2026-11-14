@@ -64,7 +64,12 @@ public final class Msg {
      */
     public record PushBegin(String accountId, String profileId, String baseFingerprint, boolean delta,
                             List<ManifestEntry> full, List<ManifestEntry> upserts, List<String> removed,
-                            String deviceNickname) {}
+                            String deviceNickname, String sourceType, String installationId, String expectedFingerprint) {
+        public PushBegin(String accountId,String profileId,String baseFingerprint,boolean delta,List<ManifestEntry> full,
+                List<ManifestEntry> upserts,List<String> removed,String deviceNickname) {
+            this(accountId,profileId,baseFingerprint,delta,full,upserts,removed,deviceNickname,"push",null,baseFingerprint);
+        }
+    }
 
     public record PushNeed(String pushId, List<String> newFiles, List<String> editedFiles, List<String> removedFiles,
                            List<String> missingHashes, Map<String, Long> partialOffsets, long uploadBytes,
@@ -82,13 +87,19 @@ public final class Msg {
 
     public record PushCommit(String pushId) {}
 
-    public record PushDone(String fingerprint, long storedBytes, long pushedAt) {}
+    public record PushDone(String fingerprint, long storedBytes, long pushedAt, String snapshotId) {
+        public PushDone(String fp,long bytes,long at) { this(fp,bytes,at,null); }
+    }
 
     public record PushCancel(String pushId) {}
 
     // ---- Pull ----
     public record PullBegin(String sourceAccountId, String profileId, PullSelection selection, PullMode mode,
-                            List<ManifestEntry> localManifest) {}
+                            List<ManifestEntry> localManifest, String snapshotId) {
+        public PullBegin(String account,String profile,PullSelection sel,PullMode mode,List<ManifestEntry> local) {
+            this(account,profile,sel,mode,local,null);
+        }
+    }
 
     public record PullPlan(List<ManifestEntry> newFiles, List<ManifestEntry> editedFiles, List<String> removedFiles,
                            long totalBytes, String sourceFingerprint, boolean selectsEverything) {}
@@ -103,6 +114,18 @@ public final class Msg {
      */
     public record FileDownloadChunk(String accountId, String profileId, String hash, long offset, long totalSize,
                                     boolean last) {}
+
+    // ---- Immutable snapshots (flavor is always checked against the stored identity) ----
+    public record SnapshotList(String accountId,String profileId) {}
+    public record SnapshotInfo(String id,String parentId,String profileId,long createdAt,String device,String sourceType,
+            String installationId,String fingerprint,int fileCount,long logicalBytes,long physicalBytes,String label,boolean pinned,boolean current) {}
+    public record SnapshotListResp(List<SnapshotInfo> snapshots) {}
+    public record SnapshotGet(String accountId,String profileId,String snapshotId) {}
+    public record SnapshotUpdate(String accountId,String profileId,String snapshotId,String label,Boolean pinned,boolean delete) {}
+    public record SnapshotRetention(String accountId,String profileId,int keepLast) {}
+    public record SnapshotVerify(String accountId,String profileId,String snapshotId) {}
+    public record EmailVerifyRequest() {}
+    public record EmailVerifyConfirm(String token) {}
 
     // ---- Accounts ----
     public record AccountList() {}

@@ -49,7 +49,9 @@ public final class MainWindow extends JFrame {
     final ProgressPanel progress = new ProgressPanel();
     final JButton push = new JButton("Push");
     final JButton pull = new JButton("Pull…");
-    final JButton backups = new JButton("Backups");
+    final JButton backups = new JButton("Snapshots");
+    final JButton recovery=new JButton("Recovery");
+    final JButton legacy=new JButton("Legacy backups");
     final JButton addons = new JButton("Addons");
     final JButton accounts = new JButton("Accounts");
     final JButton myAccount = new JButton("My account");
@@ -76,8 +78,13 @@ public final class MainWindow extends JFrame {
             public void windowClosing(WindowEvent e) {
                 if (app.busy() && !Dialogs.confirmWarning(MainWindow.this, "A transfer is running. Quit anyway? It can be resumed later.")) return;
                 if (app.connection() != null) app.connection().close();
-                dispose();
-                System.exit(0);
+                setEnabled(false);
+                progress.phase("Closing · saving verified file cache");
+                Thread.ofPlatform().name("wus-close").start(()-> {
+                    io.github.azotorp.wowuisync.client.sync.Scanner.cancelAndAwait();
+                    try {app.db().close();}catch(Exception failure){io.github.azotorp.wowuisync.client.util.ClientLog.LOG.warning("Cache close: "+failure.getMessage());}
+                    System.exit(0);
+                });
             }
         });
 
@@ -106,7 +113,7 @@ public final class MainWindow extends JFrame {
             if (updating) return;
             Flavor f = (Flavor) flavorBox.getSelectedItem();
             if (f != null && !f.enabled()) {
-                Dialogs.info(this, f.valid() ? f.displayName() + " is coming later. This version syncs Forever only."
+                Dialogs.info(this, f.valid() ? f.displayName() + " is unknown. Register a supported flavor directory in Settings."
                         : f.folderName() + " does not look like a WoW install (no game files found).");
                 updateFromApp();
                 return;
@@ -140,10 +147,13 @@ public final class MainWindow extends JFrame {
         center.add(progress, BorderLayout.CENTER);
 
         // --- bottom: actions
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 8));
-        for (JButton b : List.of(push, pull, backups, addons, accounts, myAccount, settings, about)) buttons.add(b);
+        JPanel buttons = new JPanel(new GridLayout(0,6,6,8));
+        buttons.setBorder(BorderFactory.createEmptyBorder(8,12,12,12));
+        for (JButton b : List.of(push, pull, backups, recovery, legacy, addons, accounts, myAccount, settings, about)) buttons.add(b);
         push.addActionListener(e -> onPush());
         pull.addActionListener(e -> onPull());
+        recovery.addActionListener(e->RecoveryDialog.show(this,app));
+        legacy.addActionListener(e->{if(app.flavor()!=null)BackupsDialog.show(this,app,app.flavor());});
         backups.addActionListener(e -> onBackups());
         addons.addActionListener(e -> onAddons());
         accounts.addActionListener(e -> onAccounts());
@@ -156,12 +166,13 @@ public final class MainWindow extends JFrame {
         });
         about.addActionListener(e -> AboutDialog.show(this));
 
-        JPanel root = new JPanel(new BorderLayout());
+        JPanel root = new io.github.azotorp.wowuisync.common.ui.WallpaperPanel(new BorderLayout(0,12),"/artwork/client.png",()->app.config().wallpaper&&!"high-contrast".equals(app.config().theme),()->app.config().wallpaperOpacity);
+        root.setBorder(BorderFactory.createEmptyBorder(14,14,14,14));center.setOpaque(false);progress.setOpaque(false);buttons.setOpaque(false);
         root.add(top, BorderLayout.NORTH);
         root.add(center, BorderLayout.CENTER);
         root.add(buttons, BorderLayout.SOUTH);
         setContentPane(root);
-        setMinimumSize(new Dimension(760, 520));
+        setMinimumSize(new Dimension(980, 620));
         pack();
         setLocationRelativeTo(null);
 
@@ -188,6 +199,13 @@ public final class MainWindow extends JFrame {
 
     /** Called after startup: opens Connect on first launch, or offers the last connection. */
     public void start() {
+        try {
+            if(app.db().connections().stream().anyMatch(c->c.password()!=null)) {
+                Object[] choices={"Move to OS vault","Delete saved passwords","Keep for now"};
+                int answer=javax.swing.JOptionPane.showOptionDialog(this,"Legacy connections contain plaintext passwords. Choose how to migrate them.","Secure saved credentials",javax.swing.JOptionPane.DEFAULT_OPTION,javax.swing.JOptionPane.WARNING_MESSAGE,null,choices,choices[0]);
+                if(answer==0 || answer==1) app.db().migratePasswords(answer==0);
+            }
+        } catch(Exception e) { Dialogs.error(this,e); }
         if (app.installRoot() == null) {
             Dialogs.info(this, "Welcome to WoW UI Sync. First, choose your World of Warcraft folder in Settings.");
             SettingsDialog.show(this, app);
@@ -256,7 +274,9 @@ public final class MainWindow extends JFrame {
             boolean ready = conn && app.flavor() != null && app.targetAccount() != null;
             push.setEnabled(idle && ready);
             pull.setEnabled(idle && ready);
-            backups.setEnabled(idle && app.flavor() != null);
+            backups.setEnabled(idle && ready);
+            recovery.setEnabled(idle && app.flavor()!=null);
+            legacy.setEnabled(idle && app.flavor()!=null);
             addons.setEnabled(idle && app.flavor() != null);
             Role r = app.role();
             accounts.setVisible(r == Role.ROOT || r == Role.SUPERUSER);
@@ -270,6 +290,7 @@ public final class MainWindow extends JFrame {
             if (!conn) showStatus(StatusView.notConnected(app));
             else if (app.flavor() == null) showStatus(StatusView.message("Choose your WoW folder in Settings", Theme.GRAY, ""));
             updateApplied();
+            repaint();
         } finally {
             updating = false;
         }
@@ -317,10 +338,8 @@ public final class MainWindow extends JFrame {
 
     void onBackups() {
         if (app.flavor() == null) return;
-        if (BackupsDialog.show(this, app, app.flavor())) {
-            updateFromApp();
-            refreshStatus();
-        }
+        if(!app.connected())return;
+        SnapshotsDialog.show(this,app,app.flavor());updateFromApp();refreshStatus();
     }
 
     void onAddons() {
@@ -330,14 +349,12 @@ public final class MainWindow extends JFrame {
 
     void onAccounts() {
         if (!app.connected()) return;
-        AccountsDialog.show(this, app);
-        updateFromApp();
+        BusyDialog.run(this,"Verifying current credential",d->()->{app.connection().reauthenticate(app.connectionRecord(),new UiCallbacks(this));return true;},r->{AccountsDialog.show(this,app);updateFromApp();});
     }
 
     void onMyAccount() {
         if (!app.connected()) return;
-        MyAccountDialog.show(this, app);
-        updateFromApp();
+        BusyDialog.run(this,"Verifying current credential",d->()->{app.connection().reauthenticate(app.connectionRecord(),new UiCallbacks(this));return true;},r->{MyAccountDialog.show(this,app);updateFromApp();});
     }
 
     static boolean same(Object a, Object b) {

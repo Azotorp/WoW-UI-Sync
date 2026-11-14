@@ -3,13 +3,13 @@ package io.github.azotorp.wowuisync.common;
 /** Application and protocol version constants (DESIGN.md §10.3). */
 public final class Version {
     /** Human-readable application version. */
-    public static final String APP_VERSION = "1.0.0";
+    public static final String APP_VERSION = "1.1.2-alpha";
     /** Wire protocol version. Bump on any incompatible protocol change. */
-    public static final int PROTOCOL_VERSION = 1;
+    public static final int PROTOCOL_VERSION = 2;
     /** Oldest peer protocol version this build can talk to. */
-    public static final int MIN_PROTOCOL_VERSION = 1;
+    public static final int MIN_PROTOCOL_VERSION = 2;
     /** App version that introduced {@link #MIN_PROTOCOL_VERSION}, shown in "please update" messages. */
-    public static final String MIN_APP_VERSION = "1.0.0";
+    public static final String MIN_APP_VERSION = "1.1.0-alpha";
 
     public static final String APP_NAME = "WoW UI Sync";
 

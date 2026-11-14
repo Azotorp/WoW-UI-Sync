@@ -5,10 +5,14 @@ import io.github.azotorp.wowuisync.common.Defaults;
 /** {@code server.json} (DESIGN.md §5.2). Mutable for Jackson. */
 public class ServerConfig {
     public String dataDir;
+    public java.util.List<String> additionalFlavors=new java.util.ArrayList<>();
     public String bindAddress = Defaults.BIND_ADDRESS;
     public int port = Defaults.PORT;
     public String publicHost;
     public int maxDataConnectionsPerSession = Defaults.MAX_DATA_CONNECTIONS;
+    public int maxActiveConnections=128;
+    public int maxConcurrentHandshakes=16;
+    public int maxConnectionsPerIp=32;
     public String logLevel = "INFO";
     public Smtp smtp = new Smtp();
     public Lockout lockout = new Lockout();
@@ -36,6 +40,10 @@ public class ServerConfig {
         if (maxDataConnectionsPerSession < 1 || maxDataConnectionsPerSession > Defaults.MAX_DATA_CONNECTIONS) {
             maxDataConnectionsPerSession = Defaults.MAX_DATA_CONNECTIONS;
         }
+        if(maxActiveConnections<1 || maxActiveConnections>512 || maxConcurrentHandshakes<1 || maxConcurrentHandshakes>64 || maxConnectionsPerIp<1 || maxConnectionsPerIp>128)
+            throw new IllegalArgumentException("Invalid connection budgets");
+        if(additionalFlavors==null)additionalFlavors=new java.util.ArrayList<>();
+        for(String flavor:additionalFlavors)if(!io.github.azotorp.wowuisync.common.profile.Profiles.isValidProfileId(flavor))throw new IllegalArgumentException("Invalid additional flavor identifier");
         if (smtp == null) smtp = new Smtp();
         if (lockout == null) lockout = new Lockout();
     }

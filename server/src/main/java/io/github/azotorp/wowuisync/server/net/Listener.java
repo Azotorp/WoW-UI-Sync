@@ -17,6 +17,16 @@ public final class Listener implements AutoCloseable {
     private final SSLServerSocket server;
     private final ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor();
     private Thread acceptThread;
+    private final java.util.Set<SSLSocket> sockets=java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<String,Integer> perIp=new java.util.HashMap<>();
+    private synchronized boolean reserve(SSLSocket s) {
+        String ip=s.getInetAddress().getHostAddress();
+        if(sockets.size()>=ctx.config.maxActiveConnections || perIp.getOrDefault(ip,0)>=ctx.config.maxConnectionsPerIp) return false;
+        sockets.add(s);perIp.merge(ip,1,Integer::sum);return true;
+    }
+    private synchronized void release(SSLSocket s) {
+        sockets.remove(s);String ip=s.getInetAddress().getHostAddress();perIp.computeIfPresent(ip,(k,v)->v<=1?null:v-1);
+    }
 
     public Listener(ServerContext ctx, ConnectionHandler.Services services) throws IOException {
         this.ctx = ctx;
@@ -33,7 +43,8 @@ public final class Listener implements AutoCloseable {
             while (!server.isClosed()) {
                 try {
                     SSLSocket s = (SSLSocket) server.accept();
-                    pool.submit(new ConnectionHandler(ctx, services, s));
+                    if(!reserve(s)) { s.close();continue; }
+                    pool.submit(()-> { try { new ConnectionHandler(ctx,services,s).run(); } finally { release(s); } });
                 } catch (IOException e) {
                     if (!server.isClosed()) Logs.LOG.warning("Accept failed: " + e.getMessage());
                 }
@@ -48,6 +59,7 @@ public final class Listener implements AutoCloseable {
         } catch (IOException ignored) {
             // ignore
         }
+        for(var socket:sockets) try { socket.close(); } catch(IOException ignored) {}
         pool.shutdown();
     }
 

@@ -16,6 +16,9 @@ public final class ServerContext {
     public final String fingerprint;
     public final Sessions sessions = new Sessions();
     public final SmtpSender smtp;
+    public final java.util.concurrent.Semaphore handshakes;
+    public final java.util.concurrent.ThreadPoolExecutor mailQueue=new java.util.concurrent.ThreadPoolExecutor(2,2,30,java.util.concurrent.TimeUnit.SECONDS,
+        new java.util.concurrent.ArrayBlockingQueue<>(64),r->{Thread t=new Thread(r,"mail");t.setDaemon(true);return t;});
     private volatile boolean stopping;
 
     public ServerContext(DataLayout layout, ServerConfig config, ServerDb db, SSLContext ssl, String fingerprint) {
@@ -24,6 +27,7 @@ public final class ServerContext {
         this.db = db;
         this.ssl = ssl;
         this.fingerprint = fingerprint;
+        this.handshakes=new java.util.concurrent.Semaphore(config.maxConcurrentHandshakes);
         this.smtp = new SmtpSender(config.smtp);
     }
 
@@ -33,6 +37,7 @@ public final class ServerContext {
 
     public void setStopping() {
         stopping = true;
+        mailQueue.shutdown();
     }
 
     public String publicHost() {

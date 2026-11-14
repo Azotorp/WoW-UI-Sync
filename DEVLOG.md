@@ -895,3 +895,23 @@ All open questions are answered and the design is declared complete. Everything 
 - **Reset codes:** 5 wrong attempts invalidate a code; responses never reveal whether a username or email exists.
 - **Java package root:** `io.github.azotorp.wowuisync`.
 - **Monetization:** donations only for now (e.g. GitHub Sponsors), wording to be written later; no paid features in this repo.
+
+## Entry 007 — 2026-11-13 — Cached scans and JAR-only upgrades
+Status: Implemented; see the 1.1.1-alpha development commits and ENGINEERING-REPORT.md.
+Supersedes: mandatory offline release activation for routine server upgrades.
+
+### Summary
+Recovered the unpushed protocol-2 implementation and scanfix1, restored persistent chunk-manifest caching for advisory checks, moved status/account display work outside request paths, and enabled checkpointed startup migration with the existing service and data paths.
+
+### Decisions
+Metadata hints never replace transfer integrity or strict destructive verification. Recent files/unknown identities remain untrusted. Linux ctime supplements precise file identity/timestamps. Keep protocol/repository 2; client cache schema becomes 2. Optional updater checks local pinned TLS/application readiness and never rolls a migrated database back automatically.
+
+### Changes
+- [x] Scanner/cache, staging and progress/cancellation updates.
+- [x] Lightweight server status/account display and startup migrations.
+- [x] In-place optional JAR updater and readiness probe.
+- [x] Integrity/migration/cache/updater regressions and reproducible benchmark tooling.
+- [x] Versioned artifacts and updated developer/operator documentation.
+
+### Open questions
+Native Windows/WAN/slow-disk and actual installed-systemd validation remain operator/environment tests; see the engineering report.

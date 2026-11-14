@@ -48,6 +48,7 @@ public final class ServerConnection implements Closeable {
         char[] askPassphrase(Path keyFile, boolean wrong);
     }
 
+    private ClientDb localDb;
     private final String host;
     private final int port;
     private final String hostPort;
@@ -116,6 +117,7 @@ public final class ServerConnection implements Closeable {
      */
     public static ServerConnection open(String host, int port, ClientDb db, String expectedFingerprint, Callbacks cb,
                                         String deviceId, String nickname) throws UserException, CancelledException {
+        long connectStart=System.nanoTime();
         SSLContext ctx;
         try {
             ctx = trustAllContext();
@@ -161,7 +163,7 @@ public final class ServerConnection implements Closeable {
                 throw new UserException("The server runs WoW UI Sync " + ok.appVersion()
                         + ", which is too old for this client. Ask the server's owner to update it.");
             }
-            return new ServerConnection(host, port, ctx, fp, w, ok);
+            ServerConnection connection=new ServerConnection(host,port,ctx,fp,w,ok);connection.localDb=db;ClientLog.LOG.info("Connect/TLS/pinning/HELLO elapsedMs="+(System.nanoTime()-connectStart)/1e6);return connection;
         } catch (UserException | CancelledException e) {
             throw e;
         } catch (SQLException e) {
@@ -175,6 +177,7 @@ public final class ServerConnection implements Closeable {
 
     /** Logs in with the connection's credential, prompting for a password or passphrase when needed. */
     public Msg.LoginOk login(ConnectionRecord rec, Callbacks cb) throws UserException, CancelledException {
+        long authStart=System.nanoTime();
         try {
             Frame f;
             if (rec.usesKey()) {
@@ -188,6 +191,7 @@ public final class ServerConnection implements Closeable {
                 f = control.call(new Msg.LoginKeyProof(Base64.getEncoder().encodeToString(sig)));
             } else {
                 String pw = rec.password();
+                if(pw==null && localDb!=null) pw=localDb.vault().load(rec.id());
                 if (pw == null || pw.isEmpty()) {
                     pw = cb.askPassword(rec, null);
                     if (pw == null) throw new CancelledException();
@@ -196,6 +200,7 @@ public final class ServerConnection implements Closeable {
             }
             if (f.type() == MessageType.LOGIN_FAIL) throw fail(f.message(Msg.LoginFail.class));
             login = f.message(Msg.LoginOk.class);
+            ClientLog.LOG.info("Authentication elapsedMs="+(System.nanoTime()-authStart)/1e6);
             startKeepAlive();
             ClientLog.LOG.info("Logged in to " + hostPort + " as " + login.username());
             return login;
@@ -208,6 +213,21 @@ public final class ServerConnection implements Closeable {
         }
     }
 
+    public void reauthenticate(ConnectionRecord rec,Callbacks cb) throws Exception {
+        Frame reply;
+        if(rec.usesKey()) {
+            var key=loadKey(Paths.get(rec.keyPath()),cb);
+            Frame start=control.call(new Msg.LoginKeyBegin(rec.username()));
+            if(start.type()==MessageType.LOGIN_FAIL)throw fail(start.message(Msg.LoginFail.class));
+            var challenge=start.message(Msg.LoginKeyChallenge.class);
+            byte[] signature=key.sign(KeyLogin.signedData(challenge.nonce(),challenge.sessionId(),fingerprint));
+            reply=control.call(new Msg.LoginKeyProof(Base64.getEncoder().encodeToString(signature)));
+        }else{
+            String password=cb.askPassword(rec,"Verify your current password");if(password==null)throw new CancelledException();
+            reply=control.call(new Msg.LoginPassword(rec.username(),password));
+        }
+        if(reply.type()==MessageType.LOGIN_FAIL)throw fail(reply.message(Msg.LoginFail.class));reply.message(Msg.Ok.class);
+    }
     private static UserException fail(Msg.LoginFail lf) {
         return new LoginFailedException(lf.reason(), lf.message());
     }

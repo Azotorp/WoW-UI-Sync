@@ -25,6 +25,23 @@ public final class SyncPaths {
 
     private SyncPaths() {}
 
+    public static java.nio.file.Path resolve(java.nio.file.Path root, String rel) throws java.io.IOException {
+        if (!isSafeRelative(rel) || !isSyncedPath(rel) || invalidWindowsNameReason(rel)!=null || rel.length()>1024)
+            throw new java.io.IOException("Unsafe sync path");
+        java.nio.file.Path base=root.toAbsolutePath().normalize(), target=base.resolve(rel).normalize();
+        if(!target.startsWith(base)) throw new java.io.IOException("Path escapes installation");
+        for(java.nio.file.Path p=target;p!=null && p.startsWith(base);p=p.getParent()) {
+            if(java.nio.file.Files.isSymbolicLink(p)) throw new java.io.IOException("Symbolic links are not allowed: "+p);
+            // Resolve ancestor aliases (for example macOS /var -> /private/var),
+            // then inspect this component itself for junctions or other redirects.
+            if(p.getParent()!=null && java.nio.file.Files.exists(p,java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+               !p.toRealPath().equals(p.getParent().toRealPath().resolve(p.getFileName())
+                       .toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS)))
+                throw new java.io.IOException("Linked directory is not allowed");
+        }
+        return target;
+    }
+
     /** Case-insensitive comparison key. */
     public static String key(String path) {
         return path.toLowerCase(Locale.ROOT);

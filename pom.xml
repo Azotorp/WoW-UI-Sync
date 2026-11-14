@@ -6,7 +6,7 @@
 
   <groupId>io.github.azotorp.wowuisync</groupId>
   <artifactId>wow-ui-sync</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>1.1.2-alpha</version>
   <packaging>pom</packaging>
   <name>WoW UI Sync</name>
   <description>Self-hosted backup, sync, and setup switching for your World of Warcraft UI.</description>
@@ -91,7 +91,7 @@
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.13.0</version>
           <configuration>
-            <release>21</release>
+            <release>${maven.compiler.release}</release>
             <compilerArgs>
               <arg>-Xlint:all,-serial,-processing</arg>
             </compilerArgs>

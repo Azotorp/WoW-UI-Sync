@@ -48,6 +48,9 @@ public final class TransferEngine {
 
     /** UI hooks. */
     public interface Sink {
+        default void phase(String phase) {}
+        default void scanCount(int done,int total) {}
+        default void scanStatistics(Scanner.Statistics stats) {}
         void stats(TransferStats s);
 
         void connectionLost(String message);
@@ -239,11 +242,12 @@ public final class TransferEngine {
         long batchBytes = 0;
         for (DownloadItem it : items) {
             Path done = staged.resolve(it.sha256());
-            if (Files.isRegularFile(done) && Files.size(done) == it.size()) {
+            if (Files.isRegularFile(done) && Files.size(done) == it.size() && verifyStaged(done,it.sha256())) {
                 stats.bytesDone.addAndGet(it.size());
                 stats.filesDone.incrementAndGet();
                 continue;
             }
+            Files.deleteIfExists(done);
             if (it.size() >= Defaults.LARGE_FILE_THRESHOLD) {
                 large.add(downloadLarge(accountId, profileId, it, staged));
                 continue;
@@ -288,7 +292,10 @@ public final class TransferEngine {
             @Override
             public void run(Wire w) throws IOException {
                 List<String> hashes = new ArrayList<>(items.size());
-                for (DownloadItem it : items) if (!Files.isRegularFile(staged.resolve(it.sha256()))) hashes.add(it.sha256());
+                for (DownloadItem it : items) {
+                    Path f=staged.resolve(it.sha256());
+                    if(!Files.isRegularFile(f) || Files.size(f)!=it.size() || !verifyStaged(f,it.sha256())) { Files.deleteIfExists(f);hashes.add(it.sha256()); }
+                }
                 if (hashes.isEmpty()) return;
                 int id = w.newRequestId();
                 w.send(id, new Msg.Fetch(accountId, profileId, hashes));
@@ -303,6 +310,8 @@ public final class TransferEngine {
                         throw new ProtocolException(ErrorCodes.INTEGRITY, "Downloaded data failed verification: " + e.getMessage());
                     }
                     for (PackEntry e : pack.entries()) {
+                        DownloadItem wanted=items.stream().filter(x->x.sha256().equals(e.sha256())).findFirst().orElseThrow(()->new IOException("Unexpected object"));
+                        if(wanted.size()!=e.data().length) throw new IOException("Downloaded object size mismatch");
                         writeStaged(staged, e.sha256(), e.data());
                         stats.bytesDone.addAndGet(e.data().length);
                         stats.filesDone.incrementAndGet();
@@ -340,7 +349,8 @@ public final class TransferEngine {
                     while (true) {
                         Frame f = w.read();
                         Msg.FileDownloadChunk ch = f.message(Msg.FileDownloadChunk.class);
-                        if (ch.offset() != offset) throw new IOException("Unexpected chunk offset");
+                        if (ch.offset()!=offset || ch.totalSize()!=it.size() || !it.sha256().equals(ch.hash()) || f.bodyLength()>it.size()-offset ||
+                            ch.last()!=(offset+f.bodyLength()==it.size())) throw new IOException("Unexpected download chunk");
                         out.write(f.payload(), f.bodyOffset(), f.bodyLength());
                         offset += f.bodyLength();
                         stats.bytesDone.addAndGet(f.bodyLength());
@@ -368,6 +378,7 @@ public final class TransferEngine {
     }
 
     static void writeStaged(Path staged, String sha, byte[] data) throws IOException {
+        if(!Hashing.sha256Hex(data).equals(sha)) throw new IOException("Staged hash mismatch");
         Path tmp = staged.resolve(sha + "." + UUID.randomUUID() + ".tmp");
         Files.write(tmp, data);
         moveInto(tmp, staged.resolve(sha));

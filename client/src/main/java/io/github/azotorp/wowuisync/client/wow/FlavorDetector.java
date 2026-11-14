@@ -19,14 +19,15 @@ public final class FlavorDetector {
     public static List<Flavor> detect(Path installRoot) {
         List<Flavor> out = new ArrayList<>();
         if (installRoot == null || !Files.isDirectory(installRoot)) return out;
+        if(hasMarker(installRoot)) return List.of(new Flavor(installRoot.getFileName().toString(),canonical(installRoot),Profiles.profileIdFromFolder(installRoot.getFileName().toString()),true));
         try (Stream<Path> s = Files.list(installRoot)) {
             for (Path p : (Iterable<Path>) s.filter(Files::isDirectory)::iterator) {
                 String name = p.getFileName().toString();
                 boolean underscored = name.length() > 2 && name.startsWith("_") && name.endsWith("_");
                 boolean marker = hasMarker(p);
                 boolean content = Files.isDirectory(p.resolve("WTF")) || Files.isDirectory(p.resolve("Interface"));
-                if (marker && content) out.add(new Flavor(name, p, Profiles.profileIdFromFolder(name), true));
-                else if (underscored) out.add(new Flavor(name, p, Profiles.profileIdFromFolder(name), false));
+                if (marker) out.add(new Flavor(name, canonical(p), Profiles.profileIdFromFolder(name), true));
+                else if (underscored) out.add(new Flavor(name, canonical(p), Profiles.profileIdFromFolder(name), false));
             }
         } catch (IOException e) {
             return out;
@@ -34,6 +35,8 @@ public final class FlavorDetector {
         out.sort(Comparator.comparing((Flavor f) -> !f.enabled()).thenComparing(f -> f.folderName().toLowerCase(Locale.ROOT)));
         return out;
     }
+
+    private static Path canonical(Path p){try{return p.toRealPath();}catch(IOException e){return p.toAbsolutePath().normalize();}}
 
     private static boolean hasMarker(Path dir) {
         if (Files.exists(dir.resolve(".flavor.info"))) return true;
@@ -54,6 +57,10 @@ public final class FlavorDetector {
         if (os.contains("mac")) {
             Path p = Paths.get("/Applications/World of Warcraft");
             return p;
+        }
+        if(os.contains("win")) {
+            for(String root:List.of("C:/Program Files (x86)/World of Warcraft","C:/Program Files/World of Warcraft","C:/Games/World of Warcraft"))
+                if(Files.isDirectory(Paths.get(root))) return Paths.get(root);
         }
         return null;
     }

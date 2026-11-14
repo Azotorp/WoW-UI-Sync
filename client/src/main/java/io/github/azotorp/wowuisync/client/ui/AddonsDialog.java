@@ -77,7 +77,7 @@ public final class AddonsDialog extends JDialog {
         sp.setPreferredSize(new Dimension(820, 420));
         JPanel root = new JPanel(new BorderLayout(0, 8));
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        root.add(new JLabel("Addons in this flavor. Data = SavedVariables across all characters. A backup is made before deleting."),
+        root.add(new JLabel("Addons in this flavor. Data = SavedVariables across all characters. A server recovery snapshot is required before deleting."),
                 BorderLayout.NORTH);
         root.add(sp, BorderLayout.CENTER);
         root.add(south, BorderLayout.SOUTH);
@@ -111,11 +111,22 @@ public final class AddonsDialog extends JDialog {
         if (!WowGuard.mayChange(this, flavor)) return;
         String what = addon ? "Delete the addon " + a.group().displayName() + " (folders: " + String.join(", ", a.group().folders()) + ")?"
                 : "Delete the saved data of " + a.group().displayName() + " (" + a.dataFiles().size() + " files across all characters)?";
-        if (!Dialogs.confirmWarning(this, what + "\n\nA full backup is made first.")) return;
+        if (!Dialogs.confirmWarning(this, what + "\n\nA server recovery snapshot is confirmed first.")) return;
         BusyDialog.run(this, addon ? "Deleting addon" : "Deleting data", d -> () -> {
-            Backups.create(app.db(), flavor.path(), Backups.REASON_ADDON_DELETE, null, d::update);
-            if (addon) AddonManager.deleteAddon(flavor.path(), a);
-            else AddonManager.deleteData(flavor.path(), a);
+            if(!app.connected())throw new io.github.azotorp.wowuisync.client.util.UserException("Connect before deleting so a recovery snapshot can be created.");
+            var ops=new io.github.azotorp.wowuisync.client.sync.SyncOps(app);var scan=ops.scan(flavor,null,()->false);
+            java.util.Set<String> folders=new java.util.HashSet<>();for(String folder:a.group().folders())folders.add(folder.toLowerCase(java.util.Locale.ROOT));
+            java.util.Set<String> data=new java.util.HashSet<>();for(var path:a.dataFiles())data.add(flavor.path().relativize(path).toString().replace('\\','/').toLowerCase(java.util.Locale.ROOT));
+            java.util.List<String> removals=new java.util.ArrayList<>();
+            for(var entry:scan.manifest().entries()) {
+                String folder=io.github.azotorp.wowuisync.common.path.SyncPaths.addonFolder(entry.path());
+                if(addon ? folder!=null && folders.contains(folder.toLowerCase(java.util.Locale.ROOT)):data.contains(entry.path().toLowerCase(java.util.Locale.ROOT)))removals.add(entry.path());
+            }
+            var plan=new io.github.azotorp.wowuisync.common.protocol.Msg.PullPlan(java.util.List.of(),java.util.List.of(),removals,0,null,false);
+            ops.apply(app.connection(),app.targetAccount(),flavor,scan,plan,new io.github.azotorp.wowuisync.client.sync.TransferControl(),new io.github.azotorp.wowuisync.client.sync.TransferEngine.Sink(){
+                public void stats(io.github.azotorp.wowuisync.client.sync.TransferStats s){d.update("Saving recovery snapshot",s.bytesDone.get(),s.bytesTotal);}
+                public void connectionLost(String m){throw new IllegalStateException(m);}
+            },"before_pull_recovery");
             return true;
         }, ok -> {
             changed = true;

@@ -55,11 +55,18 @@ public class SyncService {
         final String profileId;
         final Manifest manifest;
         final String startFingerprint;
+        final String startHead;
+        final String sourceType, installationId;
+        final Map<String,Long> objects = new HashMap<>();
+        boolean recovery() { return !"push".equals(sourceType); }
         final Set<String> needed;
         final Set<String> remaining = ConcurrentHashMap.newKeySet();
 
         PushState(String id, Session session, String accountId, String profileId, Manifest manifest, String startFingerprint,
-                  Set<String> needed) {
+                  Set<String> needed, String sourceType, String installationId,String startHead) {
+            this.startHead=startHead;
+            this.sourceType=sourceType;this.installationId=installationId;
+            Storage.addRefs(objects,manifest);
             this.id = id;
             this.session = session;
             this.accountId = accountId;
@@ -80,8 +87,8 @@ public class SyncService {
         this.storage = storage;
     }
 
-    private static void requireProfile(String profileId) throws ApiException {
-        if (profileId == null || !Profiles.isEnabled(profileId)) {
+    private void requireProfile(String profileId) throws ApiException {
+        if (profileId == null || (!Profiles.isEnabled(profileId)&&!ctx.config.additionalFlavors.contains(profileId))) {
             throw new ApiException(ErrorCodes.INVALID, "This server does not accept profile '" + profileId + "'.");
         }
     }
@@ -93,13 +100,12 @@ public class SyncService {
 
     // ------------------------------------------------------------------ status and manifest
 
-    public Msg.StatusResp status(AccountRow actor, Msg.StatusReq m) throws ApiException, SQLException {
+    public Msg.StatusResp status(AccountRow actor, Msg.StatusReq m) throws ApiException, SQLException, IOException {
         requireProfile(m.profileId());
         AccountRow t = Access.requireData(ctx.db, actor, m.accountId());
-        ProfileStateRow ps = ctx.db.profileState(t.id(), m.profileId()).orElse(null);
-        return new Msg.StatusResp(ps == null ? null : ps.fingerprint(), ps == null ? null : ps.lastPushAt(),
-                ps == null ? null : ps.lastPushDevice(), ps == null ? null : ps.lastPushByAccount(),
-                ps == null ? 0 : ps.storedBytes(), t.quotaMb(), ctx.db.storedBytes(t.id()));
+        Storage.StoredManifest sm=storage.statusManifest(t.id(),m.profileId());
+        return new Msg.StatusResp(sm==null?null:sm.fingerprint(),sm==null?null:sm.lastPushAt(),
+            sm==null?null:sm.lastPushDevice(),sm==null?null:sm.lastPushBy(),storage.statusUsage(t.id()),t.quotaMb(),storage.statusUsage(t.id()));
     }
 
     public Msg.ManifestResp manifest(AccountRow actor, Msg.ManifestGet m) throws ApiException, SQLException, IOException {
@@ -113,27 +119,55 @@ public class SyncService {
     // ------------------------------------------------------------------ push
 
     private static void validateEntries(List<ManifestEntry> entries) throws ApiException {
+        if(entries==null || entries.size()>250_000) throw new ApiException(ErrorCodes.INVALID,"Manifest entry limit exceeded");
+        long refs=0, total=0;
+        Map<String,Long> sizes=new HashMap<>();
         List<String> paths = new ArrayList<>(entries.size());
         for (ManifestEntry e : entries) {
             if (e == null || e.path() == null || !SyncPaths.isSafeRelative(e.path()) || !SyncPaths.isSyncedPath(e.path())) {
                 throw new ApiException(ErrorCodes.INVALID, "Rejected path: " + (e == null ? "null" : e.path()));
             }
             if (!Hashing.isSha256Hex(e.sha256()) || e.size() < 0) throw new ApiException(ErrorCodes.INVALID, "Bad entry for " + e.path());
+            if(e.path().length()>1024 || SyncPaths.invalidWindowsNameReason(e.path())!=null || e.size()>(64L<<30))
+                throw new ApiException(ErrorCodes.INVALID,"Unsafe path or file size");
+            long size=0;
+            for(var r:e.objects()) {
+                if(!Hashing.isSha256Hex(r.hash()) || r.size()<0 || (!e.chunks().isEmpty() && r.size()>(8L<<20)))
+                    throw new ApiException(ErrorCodes.INVALID,"Invalid chunk");
+                Long old=sizes.putIfAbsent(r.hash(),r.size());
+                if(old!=null && old!=r.size()) throw new ApiException(ErrorCodes.INVALID,"Inconsistent hash size");
+                size=Math.addExact(size,r.size());
+                if(++refs>1_000_000) throw new ApiException(ErrorCodes.INVALID,"Too many chunk references");
+            }
+            if(size!=e.size()) throw new ApiException(ErrorCodes.INVALID,"Chunk lengths do not match file");
+            total=Math.addExact(total,e.size());
+            if(total>(1L<<40)) throw new ApiException(ErrorCodes.INVALID,"Manifest too large");
             paths.add(e.path());
         }
+        List<String> ordered=paths.stream().map(SyncPaths::key).sorted().toList();
+        for(int i=1;i<ordered.size();i++)if(ordered.get(i).startsWith(ordered.get(i-1)+"/"))throw new ApiException(ErrorCodes.INVALID,"File/directory collision");
         List<List<String>> collisions = SyncPaths.caseCollisions(paths);
         if (!collisions.isEmpty()) {
             throw new ApiException(ErrorCodes.INVALID, "Paths differ only by letter case: " + collisions.get(0));
         }
     }
 
-    public Msg.PushNeed pushBegin(AccountRow actor, Session s, Msg.PushBegin m) throws ApiException, SQLException, IOException {
+    public synchronized Msg.PushNeed pushBegin(AccountRow actor, Session s, Msg.PushBegin m) throws ApiException, SQLException, IOException {
         requireProfile(m.profileId());
         AccountRow t = Access.requireData(ctx.db, actor, m.accountId());
+        String source=m.sourceType()==null?"push":m.sourceType();
+        if(!Set.of("push","before_pull_recovery","manual","before_restore","legacy_import").contains(source)) throw new ApiException(ErrorCodes.INVALID,"Unknown snapshot source");
+        boolean recovery=!"push".equals(source);
+        if(recovery && (!t.id().equals(s.accountId()) || m.installationId()==null || m.installationId().length()>100))
+            throw new ApiException(ErrorCodes.INVALID,"Recovery requires your own account and installation identity");
+        if(pushes.values().stream().filter(x->x.accountId.equals(t.id()) && x.session!=s).count()>=2)
+            throw new ApiException(ErrorCodes.BUSY,"Too many pending transfers");
         Storage.StoredManifest sm = storage.readManifest(t.id(), m.profileId());
         Manifest cur = sm == null ? Manifest.empty() : sm.manifest();
         String curFp = sm == null ? null : sm.fingerprint();
 
+        if(!recovery && !java.util.Objects.equals(curFp,m.expectedFingerprint()))
+            throw new ApiException(ErrorCodes.CONFLICT,"The sync head changed. Review the current server setup again.");
         Manifest next;
         if (m.delta()) {
             if (m.baseFingerprint() == null || !m.baseFingerprint().equals(curFp)) {
@@ -142,7 +176,10 @@ public class SyncService {
             List<ManifestEntry> ups = m.upserts() == null ? List.of() : m.upserts();
             validateEntries(ups);
             List<ManifestEntry> removed = new ArrayList<>();
-            if (m.removed() != null) for (String p : m.removed()) removed.add(new ManifestEntry(p, 0, ""));
+            if (m.removed() != null) for (String p : m.removed()) {
+                if(!SyncPaths.isSafeRelative(p)||!SyncPaths.isSyncedPath(p))throw new ApiException(ErrorCodes.INVALID,"Unsafe removed path");
+                removed.add(new ManifestEntry(p,0,""));
+            }
             next = new ManifestDiff(ups, List.of(), removed).applyTo(cur);
         } else {
             List<ManifestEntry> full = m.full() == null ? List.of() : m.full();
@@ -153,62 +190,59 @@ public class SyncService {
 
         ManifestDiff plan = ManifestDiff.between(cur, next);
         Set<String> unique = Storage.uniqueHashes(next);
-        Map<String, Long> sizeByHash = new HashMap<>();
-        for (ManifestEntry e : next.entries()) sizeByHash.put(e.sha256(), e.size());
-        List<String> missing = new ArrayList<>();
-        Map<String, Long> partials = new LinkedHashMap<>();
-        long upload = 0;
-        long projectedProfile = 0;
-        for (String h : unique) {
-            Path op = storage.objectPath(t.id(), m.profileId(), h);
-            if (Files.isRegularFile(op)) {
-                projectedProfile += Files.size(op);
+        Map<String,Long> sizeByHash=new HashMap<>();Storage.addRefs(sizeByHash,next);
+        List<String> missing=new ArrayList<>();Map<String,Long> partials=new LinkedHashMap<>();long upload=0;
+        for(var entry:sizeByHash.entrySet()) {
+            String h=entry.getKey();long size=entry.getValue();
+            if(storage.hasObject(t.id(),m.profileId(),h)) {
+                if(ObjectFiles.header(storage.objectPath(t.id(),m.profileId(),h)).originalSize()!=size)
+                    throw new ApiException(ErrorCodes.INTEGRITY,"Stored object length mismatch");
             } else {
-                missing.add(h);
-                long size = sizeByHash.get(h);
-                projectedProfile += size;
-                long part = size >= Defaults.LARGE_FILE_THRESHOLD ? storage.partialSize(t.id(), h) : 0;
-                if (part > 0 && part <= size) partials.put(h, part);
-                upload += size - Math.min(part, size);
+                if(size>(8L<<20)) throw new ApiException(ErrorCodes.INVALID,"New data requires v2 chunking");
+                missing.add(h);long partial=storage.partialSize(t.id(),h);
+                if(partial>0 && partial<=size) partials.put(h,partial);
+                upload=Math.addExact(upload,size);
             }
         }
-
-        // Quota check (DESIGN.md §12.6), before anything is uploaded.
-        long used = ctx.db.storedBytes(t.id());
-        long thisProfile = ctx.db.profileState(t.id(), m.profileId()).map(ProfileStateRow::storedBytes).orElse(0L);
-        long projectedAccount = used - thisProfile + projectedProfile;
-        checkQuota(t, used, projectedAccount, upload);
-
-        PushState ps = new PushState(UUID.randomUUID().toString(), s, t.id(), m.profileId(), next, curFp, new HashSet<>(missing));
-        // One pending push per session.
-        pushes.values().removeIf(p -> p.session == s);
-        pushes.put(ps.id, ps);
+        PushState ps=new PushState(UUID.randomUUID().toString(),s,t.id(),m.profileId(),next,curFp,new HashSet<>(missing),source,m.installationId(),storage.headId(t.id(),m.profileId()));
+        synchronized(storage.transactionLock) {
+            dropSession(s);
+            reserveQuota(t,ps);
+            if(Files.getFileStore(ctx.layout.root()).getUsableSpace()<upload+(256L<<20))
+                throw new ApiException(ErrorCodes.QUOTA,"Server disk reserve would be exceeded");
+            if(!storage.beginTransfer(t.id(),m.profileId())) throw new ApiException(ErrorCodes.BUSY,"Account is locked");
+            pushes.put(ps.id,ps);
+        }
+        long projectedAccount=storage.logicalBytes(t.id())+upload;
 
         return new Msg.PushNeed(ps.id, paths(plan.added()), paths(plan.edited()), paths(plan.removed()), missing, partials,
                 upload, projectedAccount, next.fingerprint());
     }
 
-    private void checkQuota(AccountRow t, long used, long projected, long upload) throws ApiException, SQLException {
-        if (t.quotaMb() != null && projected > t.quotaMb() * (1L << 20) && projected > used) {
-            throw new ApiException(ErrorCodes.QUOTA, "This push needs " + Sizes.mb(Math.max(upload, projected - used)) + " MB; your limit is "
-                    + t.quotaMb() + " MB (" + Sizes.mb(used) + " MB used).");
-        }
-        AccountRow groupOwner = null;
-        if (t.role() == Role.SUPERUSER) groupOwner = t;
-        else if (t.ownerId() != null) {
-            AccountRow o = ctx.db.accountById(t.ownerId()).orElse(null);
-            if (o != null && o.role() == Role.SUPERUSER) groupOwner = o;
-        }
-        if (groupOwner != null && groupOwner.groupQuotaMb() != null) {
-            long groupUsed = ctx.db.storedBytes(groupOwner.id());
-            for (AccountRow u : ctx.db.accountsOwnedBy(groupOwner.id())) groupUsed += ctx.db.storedBytes(u.id());
-            long groupProjected = groupUsed - used + projected;
-            if (groupProjected > groupOwner.groupQuotaMb() * (1L << 20) && projected > used) {
-                throw new ApiException(ErrorCodes.QUOTA, "This push needs " + Sizes.mb(Math.max(upload, projected - used))
-                        + " MB; your group's limit is " + groupOwner.groupQuotaMb() + " MB (" + Sizes.mb(groupUsed) + " MB used).");
-            }
+    private static void mergeReservations(Map<String,Long> refs,Map<String,Long> pending) {
+        pending.forEach((h,n)->refs.merge(h,n,Math::max));
+    }
+    private long reserved(String account,PushState candidate) throws IOException {
+        Map<String,Long> refs=storage.chargedObjects(account);
+        for(PushState ps:pushes.values()) if(ps.accountId.equals(account)) mergeReservations(refs,ps.objects);
+        if(candidate!=null && candidate.accountId.equals(account)) mergeReservations(refs,candidate.objects);
+        return Storage.sum(refs);
+    }
+    private void reserveQuota(AccountRow t,PushState ps) throws IOException,SQLException,ApiException {
+        long projected=reserved(t.id(),ps);
+        if(t.quotaMb()!=null && projected>Math.multiplyExact(t.quotaMb(),1L<<20))
+            throw new ApiException(ErrorCodes.QUOTA,"Retained snapshots and pending uploads exceed the account quota");
+        AccountRow owner=t.role()==Role.SUPERUSER?t:t.ownerId()==null?null:ctx.db.accountById(t.ownerId()).orElse(null);
+        if(owner!=null && owner.role()==Role.SUPERUSER && owner.groupQuotaMb()!=null) {
+            long total=reserved(owner.id(),ps);
+            for(AccountRow a:ctx.db.accountsOwnedBy(owner.id())) total=Math.addExact(total,reserved(a.id(),ps));
+            if(total>Math.multiplyExact(owner.groupQuotaMb(),1L<<20)) throw new ApiException(ErrorCodes.QUOTA,"Group snapshot quota exceeded");
         }
     }
+    private void drop(PushState ps) {
+        if(pushes.remove(ps.id,ps)) storage.endTransfer(ps.accountId,ps.profileId);
+    }
+    private void dropSession(Session s) { for(PushState ps:pushes.values()) if(ps.session==s) drop(ps); }
 
     private static List<String> paths(List<ManifestEntry> l) {
         List<String> out = new ArrayList<>(l.size());
@@ -222,9 +256,10 @@ public class SyncService {
         return ps;
     }
 
-    public Msg.Ok packUpload(AccountRow actor, Session s, Frame f) throws ApiException, IOException {
+    public Msg.Ok packUpload(AccountRow actor, Session s, Frame f) throws ApiException, IOException, SQLException {
         Msg.PackUpload h = f.message(Msg.PackUpload.class);
         PushState ps = push(s, h.pushId());
+        Access.requireData(ctx.db,actor,ps.accountId);
         if (!storage.beginTransfer(ps.accountId, ps.profileId)) throw new ApiException(ErrorCodes.BUSY, "The account is being deleted.");
         try {
             PackReader.Pack pack;
@@ -235,7 +270,8 @@ public class SyncService {
             }
             boolean compress = pack.kind() == PackKind.COMPRESSED;
             for (PackEntry e : pack.entries()) {
-                if (!ps.needed.contains(e.sha256())) continue;
+                if (!ps.needed.contains(e.sha256()) || !java.util.Objects.equals(ps.objects.get(e.sha256()),(long)e.data().length))
+                    throw new ApiException(ErrorCodes.INTEGRITY,"Pack object is not an expected size/hash");
                 storage.storeObject(ps.accountId, ps.profileId, e.sha256(), e.data(), compress);
                 ps.remaining.remove(e.sha256());
             }
@@ -245,15 +281,20 @@ public class SyncService {
         }
     }
 
-    public Msg.Ok fileUploadChunk(AccountRow actor, Session s, Frame f) throws ApiException, IOException {
+    public Msg.Ok fileUploadChunk(AccountRow actor, Session s, Frame f) throws ApiException, IOException, SQLException {
         Msg.FileUploadChunk h = f.message(Msg.FileUploadChunk.class);
         PushState ps = push(s, h.pushId());
+        Access.requireData(ctx.db,actor,ps.accountId);
         if (!Hashing.isSha256Hex(h.hash()) || !ps.needed.contains(h.hash())) {
             throw new ApiException(ErrorCodes.INVALID, "This push does not need that file.");
         }
-        if (f.bodyLength() > Defaults.CHUNK_BYTES * 2) throw new ApiException(ErrorCodes.INVALID, "Chunk too large.");
+        Long expected=ps.objects.get(h.hash());
+        if(expected==null || h.totalSize()!=expected || h.offset()<0 || h.offset()>expected || f.bodyLength()>expected-h.offset() ||
+                h.last()!=(h.offset()+f.bodyLength()==expected)) throw new ApiException(ErrorCodes.INTEGRITY,"Unexpected chunk length or offset");
+        if (f.bodyLength() > Defaults.CHUNK_BYTES) throw new ApiException(ErrorCodes.INVALID, "Chunk too large.");
         if (!storage.beginTransfer(ps.accountId, ps.profileId)) throw new ApiException(ErrorCodes.BUSY, "The account is being deleted.");
         try {
+          synchronized(storage.objectLock(ps.accountId,h.hash())) {
             if (storage.hasObject(ps.accountId, ps.profileId, h.hash())) {
                 ps.remaining.remove(h.hash());
                 return new Msg.Ok("have");
@@ -273,6 +314,7 @@ public class SyncService {
                 ps.remaining.remove(h.hash());
             }
             return new Msg.Ok(null);
+          }
         } finally {
             storage.endTransfer(ps.accountId, ps.profileId);
         }
@@ -280,7 +322,7 @@ public class SyncService {
 
     public Msg.ResumeOffset resumeQuery(Session s, Msg.ResumeQuery m) throws ApiException {
         PushState ps = push(s, m.pushId());
-        if (!Hashing.isSha256Hex(m.hash())) throw new ApiException(ErrorCodes.INVALID, "Bad hash.");
+        if (!Hashing.isSha256Hex(m.hash()) || !ps.objects.containsKey(m.hash())) throw new ApiException(ErrorCodes.INVALID, "Bad hash.");
         // offset -1 = the server already has the object.
         if (storage.hasObject(ps.accountId, ps.profileId, m.hash())) return new Msg.ResumeOffset(m.hash(), -1);
         return new Msg.ResumeOffset(m.hash(), storage.partialSize(ps.accountId, m.hash()));
@@ -289,11 +331,11 @@ public class SyncService {
     public Msg.PushDone pushCommit(AccountRow actor, Session s, Msg.PushCommit m) throws ApiException, SQLException, IOException {
         PushState ps = push(s, m.pushId());
         Access.requireData(ctx.db, actor, ps.accountId);
-        synchronized (storage.profileLock(ps.accountId, ps.profileId)) {
+        synchronized (storage.transactionLock) {
             Storage.StoredManifest sm = storage.readManifest(ps.accountId, ps.profileId);
             String curFp = sm == null ? null : sm.fingerprint();
-            if (curFp == null ? ps.startFingerprint != null : !curFp.equals(ps.startFingerprint)) {
-                pushes.remove(ps.id);
+            if (!ps.recovery() && (!java.util.Objects.equals(curFp,ps.startFingerprint)||!java.util.Objects.equals(storage.headId(ps.accountId,ps.profileId),ps.startHead))) {
+                drop(ps);
                 throw new ApiException(ErrorCodes.CONFLICT, "The server copy changed while you were pushing. Check the status and push again.");
             }
             Set<String> unique = Storage.uniqueHashes(ps.manifest);
@@ -302,31 +344,27 @@ public class SyncService {
             if (!stillMissing.isEmpty()) {
                 throw new ApiException(ErrorCodes.INTEGRITY, stillMissing.size() + " files have not been uploaded yet.");
             }
-            long now = System.currentTimeMillis();
-            String fp = ps.manifest.fingerprint();
-            storage.writeManifest(ps.accountId, ps.profileId,
-                    new Storage.StoredManifest(fp, ps.manifest.entries(), now, s.deviceNickname(), actor.username()));
-            long stored;
-            if (storage.activeTransfers(ps.accountId, ps.profileId) == 0) {
-                stored = storage.gc(ps.accountId, ps.profileId, unique);
-            } else {
-                stored = storage.objectBytes(ps.accountId, ps.profileId, unique);
-            }
-            ctx.db.putProfileState(new ProfileStateRow(ps.accountId, ps.profileId, fp, stored, now, s.deviceNickname(), actor.username()));
-            pushes.remove(ps.id);
-            Logs.LOG.info("Push committed: account " + ps.accountId + " profile " + ps.profileId + " by " + actor.username()
-                    + " (" + ps.manifest.size() + " files, " + Sizes.human(stored) + " stored)");
-            return new Msg.PushDone(fp, stored, now);
+            reserveQuota(ctx.db.accountById(ps.accountId).orElseThrow(),ps);
+            long now=System.currentTimeMillis();String fp=ps.manifest.fingerprint();
+            Storage.Snapshot snap=storage.commitSnapshot(ps.accountId,ps.profileId,
+                new Storage.StoredManifest(fp,ps.manifest.entries(),now,s.deviceNickname(),actor.username()),ps.sourceType,ps.installationId,!ps.recovery());
+            if(ps.sourceType.equals("before_pull_recovery")||ps.sourceType.equals("before_restore"))storage.annotate(ps.accountId,ps.profileId,snap.id(),"Recovery · "+ps.installationId,true,false);
+            long stored=storage.logicalBytes(ps.accountId);
+            if(!ps.recovery()) ctx.db.putProfileState(new ProfileStateRow(ps.accountId,ps.profileId,fp,stored,now,s.deviceNickname(),actor.username()));
+            drop(ps);
+            storage.prune(ps.accountId,ps.profileId);
+            Logs.LOG.info("Snapshot committed: "+snap.id()+" account "+ps.accountId+" flavor "+ps.profileId+" source "+ps.sourceType);
+            return new Msg.PushDone(fp,stored,now,snap.id());
         }
     }
 
     public void pushCancel(Session s, Msg.PushCancel m) {
         PushState ps = m.pushId() == null ? null : pushes.get(m.pushId());
-        if (ps != null && ps.session == s) pushes.remove(ps.id);
+        if (ps != null && ps.session == s) drop(ps);
     }
 
     public void sessionClosed(Session s) {
-        pushes.values().removeIf(p -> p.session == s);
+        dropSession(s);
     }
 
     // ------------------------------------------------------------------ pull
@@ -334,7 +372,7 @@ public class SyncService {
     public Msg.PullPlan pullBegin(AccountRow actor, Msg.PullBegin m) throws ApiException, SQLException, IOException {
         requireProfile(m.profileId());
         AccountRow src = Access.requireData(ctx.db, actor, m.sourceAccountId());
-        Storage.StoredManifest sm = storage.readManifest(src.id(), m.profileId());
+        Storage.StoredManifest sm = m.snapshotId()==null ? storage.readManifest(src.id(),m.profileId()) : requireSnapshot(src.id(),m.profileId(),m.snapshotId()).content();
         if (sm == null) throw new ApiException(ErrorCodes.NOT_FOUND, src.username() + " has nothing stored for this profile yet.");
         Manifest source = sm.manifest();
         List<ManifestEntry> localEntries = m.localManifest() == null ? List.of() : m.localManifest();
@@ -351,14 +389,49 @@ public class SyncService {
                 PullPlanner.selectsEverything(source, sel, mode));
     }
 
+    private Storage.Snapshot requireSnapshot(String a,String p,String id) throws IOException,ApiException {
+        try { return storage.snapshot(a,p,id); }
+        catch(java.nio.file.NoSuchFileException e) {
+            for(String other:storage.profiles(a)) if(!other.equals(p)) {
+                try { storage.snapshot(a,other,id);throw new ApiException(ErrorCodes.FLAVOR_MISMATCH,"Snapshot belongs to another flavor"); }
+                catch(java.nio.file.NoSuchFileException ignored) {}
+            }
+            throw new ApiException(ErrorCodes.NOT_FOUND,"No retained snapshot with that identity");
+        }
+    }
+    public Msg.SnapshotListResp snapshotList(AccountRow actor,Msg.SnapshotList m) throws Exception {
+        requireProfile(m.profileId());var a=Access.requireData(ctx.db,actor,m.accountId());List<Msg.SnapshotInfo> out=new ArrayList<>();
+        for(var snap:storage.snapshots(a.id(),m.profileId())) out.add(storage.info(a.id(),m.profileId(),snap));
+        return new Msg.SnapshotListResp(out);
+    }
+    public Msg.ManifestResp snapshotGet(AccountRow actor,Msg.SnapshotGet m) throws Exception {
+        requireProfile(m.profileId());var a=Access.requireData(ctx.db,actor,m.accountId());
+        var sm=requireSnapshot(a.id(),m.profileId(),m.snapshotId()).content();
+        return new Msg.ManifestResp(sm.fingerprint(),sm.entries(),sm.lastPushAt(),sm.lastPushDevice(),sm.lastPushBy());
+    }
+    public Msg.Ok snapshotUpdate(AccountRow actor,Msg.SnapshotUpdate m) throws Exception {
+        requireProfile(m.profileId());var a=Access.requireData(ctx.db,actor,m.accountId());requireSnapshot(a.id(),m.profileId(),m.snapshotId());
+        storage.annotate(a.id(),m.profileId(),m.snapshotId(),m.label(),m.pinned(),m.delete());
+        Logs.LOG.info("Snapshot metadata updated by "+actor.username()+" snapshot "+m.snapshotId());return new Msg.Ok("Snapshot updated");
+    }
+    public Msg.Ok snapshotRetention(AccountRow actor,Msg.SnapshotRetention m) throws Exception {
+        requireProfile(m.profileId());var a=Access.requireData(ctx.db,actor,m.accountId());storage.retention(a.id(),m.profileId(),m.keepLast());
+        return new Msg.Ok(m.keepLast()==0?"All snapshots retained":"Retention enabled: latest "+m.keepLast()+", plus pins, current head and a 48-hour protection window");
+    }
+    public Msg.Ok snapshotVerify(AccountRow actor,Msg.SnapshotVerify m) throws Exception {
+        requireProfile(m.profileId());var a=Access.requireData(ctx.db,actor,m.accountId());
+        storage.verify(a.id(),m.profileId(),requireSnapshot(a.id(),m.profileId(),m.snapshotId()).content().manifest());
+        return new Msg.Ok("All file and chunk checksums verified");
+    }
+
     /** Sends the requested objects as packs (compressed and raw packs, never mixed). */
     public void fetch(AccountRow actor, Msg.Fetch m, Wire wire, int id) throws ApiException, SQLException, IOException {
         requireProfile(m.profileId());
         AccountRow t = Access.requireData(ctx.db, actor, m.accountId());
         List<String> hashes = m.hashes() == null ? List.of() : m.hashes();
-        if (hashes.size() > 100_000) throw new ApiException(ErrorCodes.INVALID, "Too many hashes.");
+        if (hashes.size() > 5000) throw new ApiException(ErrorCodes.INVALID, "Too many hashes.");
         for (String h : hashes) {
-            if (!Hashing.isSha256Hex(h) || !storage.hasObject(t.id(), m.profileId(), h)) {
+            if (!Hashing.isSha256Hex(h) || !storage.hasObject(t.id(), m.profileId(), h) || !storage.authorizedObject(t.id(),m.profileId(),h)) {
                 throw new ApiException(ErrorCodes.NOT_FOUND, "The server does not have " + h + ". Check the status and try again.");
             }
         }
@@ -371,7 +444,9 @@ public class SyncService {
             for (String h : hashes) {
                 Path p = storage.objectPath(t.id(), m.profileId(), h);
                 ObjectFiles.Header hdr = ObjectFiles.header(p);
+                if(hdr.originalSize()>(8L<<20)) throw new ApiException(ErrorCodes.INVALID,"Large legacy object requires streaming download");
                 byte[] data = ObjectFiles.read(p);
+                if(!Hashing.sha256Hex(data).equals(h)) throw new ApiException(ErrorCodes.INTEGRITY,"Stored chunk is corrupt");
                 boolean compressed = hdr.codec() != Codec.RAW;
                 PackWriter w = compressed ? comp : raw;
                 long limit = compressed ? Defaults.COMPRESSED_PACK_BYTES : Defaults.RAW_PACK_BYTES;
@@ -404,13 +479,18 @@ public class SyncService {
     public void fileDownload(AccountRow actor, Msg.FileDownloadChunk m, Wire wire, int id) throws ApiException, SQLException, IOException {
         requireProfile(m.profileId());
         AccountRow t = Access.requireData(ctx.db, actor, m.accountId());
-        if (!Hashing.isSha256Hex(m.hash()) || !storage.hasObject(t.id(), m.profileId(), m.hash())) {
+        if (!Hashing.isSha256Hex(m.hash()) || !storage.hasObject(t.id(), m.profileId(), m.hash()) || !storage.authorizedObject(t.id(),m.profileId(),m.hash())) {
             throw new ApiException(ErrorCodes.NOT_FOUND, "The server does not have that file.");
         }
         if (!storage.beginTransfer(t.id(), m.profileId())) throw new ApiException(ErrorCodes.BUSY, "The account is being deleted.");
         try {
             Path p = storage.objectPath(t.id(), m.profileId(), m.hash());
             long total = ObjectFiles.header(p).originalSize();
+            try(InputStream verify=ObjectFiles.openContent(p)) {
+                var md=Hashing.newSha256();byte[] bytes=new byte[65536];long count=0;int n;
+                while((n=verify.read(bytes))!=-1) { count+=n;if(count>total) throw new IOException("Stored object too long");md.update(bytes,0,n); }
+                if(count!=total || !Hashing.hex(md.digest()).equals(m.hash())) throw new ApiException(ErrorCodes.INTEGRITY,"Stored object failed verification");
+            }
             long offset = Math.max(0, Math.min(m.offset(), total));
             try (InputStream in = ObjectFiles.openContent(p)) {
                 in.skipNBytes(offset);

@@ -22,6 +22,9 @@ public final class Wire implements Closeable {
     private final Closeable underlying;
     private final Object writeLock = new Object();
     private final AtomicInteger nextId = new AtomicInteger(1);
+    private static final java.util.concurrent.Semaphore RECEIVE_BUDGET = new java.util.concurrent.Semaphore(256);
+    private int receiveUnits;
+    private void releaseBuffer() { if(receiveUnits>0) { RECEIVE_BUDGET.release(receiveUnits);receiveUnits=0; } }
     private volatile Codec codec = Codec.RAW;
 
     public Wire(InputStream in, OutputStream out, Closeable underlying) {
@@ -89,14 +92,19 @@ public final class Wire implements Closeable {
 
     /** Blocks for the next frame. Throws {@link EOFException} on a clean close. */
     public Frame read() throws IOException {
+        releaseBuffer();
         int type = in.read();
         if (type < 0) throw new EOFException("Connection closed");
         int id = in.readInt();
         int len = in.readInt();
         if (len < 0 || len > Defaults.MAX_FRAME_PAYLOAD) throw new IOException("Bad frame length " + len);
+        MessageType messageType = MessageType.byCode(type);
+        int units=Math.max(1,(len+(1<<20)-1)/(1<<20));
+        if(!RECEIVE_BUDGET.tryAcquire(units)) throw new IOException("Global receive budget exhausted");
+        receiveUnits=units;
         byte[] payload = new byte[len];
         in.readFully(payload);
-        return new Frame(MessageType.byCode(type), id, payload);
+        return new Frame(messageType, id, payload);
     }
 
     /** Sends a request and reads the next frame (for strictly request/response connections). */
@@ -112,6 +120,7 @@ public final class Wire implements Closeable {
 
     @Override
     public void close() {
+        releaseBuffer();
         try {
             underlying.close();
         } catch (IOException ignored) {

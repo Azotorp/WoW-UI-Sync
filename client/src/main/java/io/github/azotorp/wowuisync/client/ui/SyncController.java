@@ -46,21 +46,43 @@ final class SyncController {
 
     // ------------------------------------------------------------------ status
 
+    private io.github.azotorp.wowuisync.client.sync.Scanner.Progress scanProgress() {
+        return new io.github.azotorp.wowuisync.client.sync.Scanner.Progress() {
+            public void update(int d,int t) { w.progress.count(t==0?"Files discovered":"Files checked",Math.abs(d),t); }
+            public void phase(String text) { w.progress.phase(text); }
+            public void statistics(io.github.azotorp.wowuisync.client.sync.Scanner.Statistics s) {
+                w.progress.note(s.mode()+" · Cache hits: "+s.cacheHits()+" · Files hashed: "+s.hashedFiles()+" · "+Sizes.human(s.bytesHashed())+" read · "+String.format(java.util.Locale.ROOT,"%.1f s",s.elapsedNanos()/1e9));
+            }
+        };
+    }
     void refreshStatus() {
         Ctx c = ctx();
         if (c == null || app.busy()) return;
         int gen = ++statusGeneration;
-        w.showStatus(StatusView.message("Checking…", Theme.GRAY, "Scanning files and asking the server."));
+        last=null;
+        w.showStatus(StatusView.message("Checking…", Theme.GRAY, "Checking the server head before scanning local files."));
         app.setBusy(true);
-        w.progress.begin("Checking status", false);
+        ProgressPanel.Control statusControl = w.progress.begin("Checking status", false);
         Bg.run(() -> {
-            LocalScan scan = ops.scan(c.flavor(), (d, t) -> w.progress.count("Scanning files", d, t), () -> false);
-            return ops.status(c.conn(), c.account(), c.flavor(), scan);
+            statusControl.checkpoint();
+            w.progress.phase("Checking authoritative server head");
+            statusControl.onCancel(()->Thread.ofVirtual().start(c.conn()::close));
+            SyncStatus result;
+            try {result=ops.automaticStatus(c.conn(),c.account(),c.flavor(),scanProgress(),statusControl::cancelled);}
+            catch(Exception e){statusControl.checkpoint();throw e;}
+            finally {statusControl.onCancel(null);}
+            statusControl.checkpoint();
+            return result;
         }, s -> {
             app.setBusy(false);
             w.progress.idle();
-            if (gen != statusGeneration) return;
+            if (gen != statusGeneration || ctx()==null || !c.equals(ctx()) || statusControl.cancelled()) return;
             last = s;
+            if(s==null) {
+                w.showStatus(StatusView.message("No synced files yet",Theme.BLUE,
+                    "No synced files yet. Push this installation to create the first snapshot. Local files have not been scanned."));
+                return;
+            }
             w.showStatus(view(s, c.account()));
             if (!s.scan().skippedInvalid().isEmpty()) {
                 w.progress.note(s.scan().skippedInvalid().size() + " files with names Windows cannot use are skipped.");
@@ -68,10 +90,11 @@ final class SyncController {
         }, e -> {
             app.setBusy(false);
             w.progress.idle();
-            w.showStatus(StatusView.message("Status unavailable", Theme.GRAY, Dialogs.message(e)));
+            if (gen != statusGeneration || app.connection()!=c.conn() || !java.util.Objects.equals(app.flavor(),c.flavor()) || !java.util.Objects.equals(app.targetAccount(),c.account())) return;
+            w.showStatus(StatusView.message(e instanceof CancelledException ? "Status check cancelled" : "Status unavailable", Theme.GRAY, Dialogs.message(e)));
             if (app.connection() != null && app.connection().isClosed()) {
                 app.disconnect();
-                Dialogs.error(w, "The connection to the server was lost. Connect again.");
+                if(!statusControl.cancelled()) Dialogs.error(w, "The connection to the server was lost. Connect again.");
             }
         });
     }
@@ -123,7 +146,8 @@ final class SyncController {
         app.setBusy(true);
         var control = w.progress.begin("Push to " + c.account().username(), true);
         Bg.run(() -> {
-            LocalScan scan = ops.scan(c.flavor(), (d, t) -> w.progress.count("Scanning files", d, t), control::cancelled);
+            ops.serverHead(c.conn(),c.account(),c.flavor());
+            LocalScan scan = ops.scan(c.flavor(), scanProgress(), ()->{try{control.checkpoint();return false;}catch(CancelledException e){return true;}});
             if (!scan.caseCollisions().isEmpty()) {
                 StringBuilder sb = new StringBuilder("These files differ only by upper/lower case. Rename or remove one of each, then push again:\n");
                 for (List<String> g : scan.caseCollisions()) sb.append("\n").append(String.join("  /  ", g));
@@ -134,6 +158,7 @@ final class SyncController {
     }
 
     private void pushConfirm(Ctx c, SyncStatus s, io.github.azotorp.wowuisync.client.sync.TransferControl control) {
+        if(control.cancelled()){done("Push cancelled.");return;}
         if (!s.scan().skippedInvalid().isEmpty()) {
             Dialogs.warn(w, "These files are skipped because their names are not valid on Windows:\n\n"
                     + String.join("\n", s.scan().skippedInvalid().subList(0, Math.min(40, s.scan().skippedInvalid().size()))));
@@ -154,6 +179,7 @@ final class SyncController {
     }
 
     private void pushReview(Ctx c, SyncStatus s, Msg.PushNeed need, io.github.azotorp.wowuisync.client.sync.TransferControl control) {
+        if(control.cancelled()){ops.pushCancel(c.conn(),need);done("Push cancelled.");return;}
         boolean nothing = need.newFiles().isEmpty() && need.editedFiles().isEmpty() && need.removedFiles().isEmpty();
         if (nothing && need.missingHashes().isEmpty() && s.server().currentFingerprint() != null) {
             ops.pushCancel(c.conn(), need);
@@ -197,11 +223,14 @@ final class SyncController {
         var control = w.progress.begin("Pull from " + c.account().username(), true);
         AtomicReference<LocalScan> scanRef = new AtomicReference<>();
         Bg.run(() -> {
-            LocalScan scan = ops.scan(c.flavor(), (d, t) -> w.progress.count("Scanning files", d, t), control::cancelled);
+            ops.serverHead(c.conn(),c.account(),c.flavor());
+            w.progress.phase("Reading authoritative pull source");
+            SyncOps.PullSource source=ops.pullSource(c.conn(),c.account(),c.flavor());
+            LocalScan scan = ops.scan(c.flavor(), scanProgress(), ()->{try{control.checkpoint();return false;}catch(CancelledException e){return true;}});
             scanRef.set(scan);
-            w.progress.phase("Reading " + c.account().username() + "'s addon list…");
-            return ops.pullSource(c.conn(), c.account(), c.flavor());
+            return source;
         }, src -> {
+            if(control.cancelled()){done("Pull cancelled.");return;}
             w.progress.phase("Choose what to pull…");
             PullSelectionDialog.Choice ch = PullSelectionDialog.show(w, c.account().username(), src, scanRef.get());
             if (ch == null) {
@@ -215,13 +244,14 @@ final class SyncController {
     }
 
     private void pullReview(Ctx c, LocalScan scan, Msg.PullPlan plan, io.github.azotorp.wowuisync.client.sync.TransferControl control) {
+        if(control.cancelled()){done("Pull cancelled.");return;}
         if (plan.newFiles().isEmpty() && plan.editedFiles().isEmpty() && plan.removedFiles().isEmpty()) {
             done("Nothing to pull.");
             Dialogs.info(w, "Nothing to change: this PC already matches your selection.");
             return;
         }
         String headline = "Pull from " + c.account().username() + " into " + c.flavor().displayName()
-                + ". These changes will be made on this PC; a full local backup is made first.";
+                + ". These changes will be made on this PC; a server recovery snapshot is confirmed first.";
         String footer = "Download: up to " + Sizes.human(plan.totalBytes()) + " (files already on this PC are reused).";
         if (!ReviewDialog.show(w, "Review pull", headline, paths(plan.newFiles()), paths(plan.editedFiles()), plan.removedFiles(), footer, null)) {
             done("Pull cancelled.");
@@ -231,7 +261,7 @@ final class SyncController {
             done("Pull cancelled.");
             return;
         }
-        w.progress.phase("Backing up, then downloading…");
+        w.progress.phase("Saving recovery snapshot, then downloading…");
         Bg.run(() -> ops.pullApply(c.conn(), c.account(), c.flavor(), scan, plan, control, sink(),
                 (what, f, t) -> {
                     if (t > 0) w.progress.count(what, f, t);
@@ -239,7 +269,7 @@ final class SyncController {
                 }), addonsChanged -> {
             done("Pull complete.");
             app.fire();
-            String msg = "Pull complete. A backup of your previous setup is listed under Backups.";
+            String msg = "Pull complete. Your previous setup is saved as a recovery snapshot in your own account.";
             if (addonsChanged) {
                 msg += "\n\nIf you use CurseForge, WowUp, or a similar addon manager, run a rescan or refresh so it picks up the synced addons.";
             }
@@ -275,6 +305,12 @@ final class SyncController {
 
         ProgressPanelSink(ProgressPanel p) {
             this.p = p;
+        }
+
+        @Override public void phase(String phase) {p.phase(phase);}
+        @Override public void scanCount(int done,int total) {p.count(total==0?"Files discovered":"Files checked",Math.abs(done),total);}
+        @Override public void scanStatistics(io.github.azotorp.wowuisync.client.sync.Scanner.Statistics s) {
+            p.note(s.mode()+" · Cache hits: "+s.cacheHits()+" · Files hashed: "+s.hashedFiles()+" · "+Sizes.human(s.bytesHashed())+" read · "+String.format(java.util.Locale.ROOT,"%.1f s",s.elapsedNanos()/1e9));
         }
 
         @Override

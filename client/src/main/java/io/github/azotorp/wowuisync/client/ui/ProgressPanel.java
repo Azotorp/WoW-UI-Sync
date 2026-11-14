@@ -77,6 +77,7 @@ public final class ProgressPanel extends JPanel {
         control = c;
         SwingUtilities.invokeLater(() -> {
             title.setText(what);
+            bar.setString("Starting…");
             bar.setIndeterminate(true);
             bar.setValue(0);
             files.setText(" ");
@@ -94,6 +95,7 @@ public final class ProgressPanel extends JPanel {
     public void phase(String text) {
         SwingUtilities.invokeLater(() -> {
             title.setText(text);
+            bar.setString("Working…");
             bar.setIndeterminate(true);
         });
     }
@@ -104,15 +106,17 @@ public final class ProgressPanel extends JPanel {
 
     public void count(String label, long done, long total) {
         SwingUtilities.invokeLater(() -> {
+            bar.setString(total<=0?"Working…":null);
             bar.setIndeterminate(total <= 0);
             if (total > 0) bar.setValue((int) Math.min(1000, done * 1000 / total));
-            files.setText(label + ": " + done + " of " + total);
+            files.setText(label + ": " + done + (total > 0 ? " of " + total : ""));
         });
     }
 
     /** Transfer statistics. {@code wireBytes} = bytes actually sent or received. */
     public void transfer(long filesDone, long filesTotal, long bytesDone, long bytesTotal, long wireBytes, double bytesPerSec) {
         SwingUtilities.invokeLater(() -> {
+            bar.setString(bytesTotal<=0?"Working…":null);
             bar.setIndeterminate(bytesTotal <= 0);
             if (bytesTotal > 0) bar.setValue((int) Math.min(1000, bytesDone * 1000 / Math.max(1, bytesTotal)));
             files.setText("Files: " + filesDone + " of " + filesTotal);
@@ -127,6 +131,7 @@ public final class ProgressPanel extends JPanel {
         control = null;
         SwingUtilities.invokeLater(() -> {
             title.setText(text);
+            bar.setString(null);
             bar.setIndeterminate(false);
             bar.setValue(1000);
             pause.setEnabled(false);
@@ -137,6 +142,7 @@ public final class ProgressPanel extends JPanel {
     public void idle() {
         control = null;
         title.setText("No transfer running.");
+        bar.setString(null);
         files.setText(" ");
         bytes.setText(" ");
         speed.setText(" ");

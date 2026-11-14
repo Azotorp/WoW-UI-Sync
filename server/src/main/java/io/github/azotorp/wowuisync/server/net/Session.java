@@ -23,6 +23,9 @@ public final class Session {
     private final Set<Socket> dataSockets = ConcurrentHashMap.newKeySet();
     private final AtomicInteger dataCount = new AtomicInteger();
     private volatile boolean closed;
+    private volatile long authenticatedAt=System.currentTimeMillis();
+    public void reauthenticated(){authenticatedAt=System.currentTimeMillis();}
+    public boolean freshCredential(){return System.currentTimeMillis()-authenticatedAt<300_000;}
 
     public Session(String id, String accountId, String username, Role role, int credentialVersion, String deviceId,
                    String deviceNickname, Codec codec, String ip, Socket controlSocket) {

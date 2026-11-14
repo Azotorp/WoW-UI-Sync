@@ -38,11 +38,27 @@ public final class ClientDb implements AutoCloseable {
                             + "reason TEXT NOT NULL, source_account TEXT, file_count INTEGER NOT NULL, size_bytes INTEGER NOT NULL, "
                             + "PRIMARY KEY(flavor_path, suffix))",
                     "CREATE TABLE sample_cache (sha256 TEXT PRIMARY KEY, compressible INTEGER NOT NULL)"
+            }, new String[] {
+                "CREATE TABLE scan_cache_v2 (root TEXT NOT NULL, path TEXT NOT NULL, payload TEXT NOT NULL, checksum TEXT NOT NULL, PRIMARY KEY(root,path))"
             });
 
     public static final int SCHEMA_VERSION = MIGRATIONS.size();
 
     private final Connection conn;
+    private Path file;
+    private final Map<String,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry>> decodedScans=new java.util.LinkedHashMap<>();
+    private final Map<String,java.util.Set<String>> corruptScans=new HashMap<>();
+    private long cacheDataVersion=-1;
+
+    public io.github.azotorp.wowuisync.client.crypto.CredentialVault vault() { return new io.github.azotorp.wowuisync.client.crypto.CredentialVault(file.getParent()); }
+    public synchronized void migratePasswords(boolean storeSecurely) throws SQLException {
+        for(ConnectionRecord c:connections()) if(c.password()!=null) {
+            if(storeSecurely) try { vault().save(c.id(),c.password()); } catch(IOException e) { throw new SQLException("OS credential vault unavailable. Existing credentials were preserved.",e); }
+            exec("UPDATE connections SET password=NULL WHERE id=?",c.id());
+        }
+        exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    }
+    public Path staging() { return file.toAbsolutePath().getParent().resolve("partial/objects"); }
 
     private ClientDb(Connection c) {
         this.conn = c;
@@ -58,7 +74,8 @@ public final class ClientDb implements AutoCloseable {
             s.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");
         }
         ClientDb db = new ClientDb(c);
-        db.migrate(backupDir, existed);
+        db.file=file;
+        try { db.migrate(backupDir, existed); } catch(SQLException | IOException | RuntimeException e) { c.close();throw e; }
         return db;
     }
 
@@ -123,12 +140,15 @@ public final class ClientDb implements AutoCloseable {
     }
 
     public synchronized void saveConnection(ConnectionRecord c) throws SQLException {
+        if(c.password()!=null) try { vault().save(c.id(),c.password()); }
+        catch(IOException e) { throw new SQLException("Secure password storage is unavailable. Use a generated key or prompt at login.",e); }
         exec("INSERT OR REPLACE INTO connections(id, name, host, port, username, auth_type, password, key_path, created_at) "
                         + "VALUES (?,?,?,?,?,?,?,?,COALESCE((SELECT created_at FROM connections WHERE id=?),?))",
-                c.id(), c.name(), c.host(), c.port(), c.username(), c.authType(), c.password(), c.keyPath(), c.id(), System.currentTimeMillis());
+                c.id(), c.name(), c.host(), c.port(), c.username(), c.authType(), null, c.keyPath(), c.id(), System.currentTimeMillis());
     }
 
     public synchronized void deleteConnection(String id) throws SQLException {
+        try { vault().remove(id); } catch(IOException ignored) {}
         exec("DELETE FROM connections WHERE id=?", id);
     }
 
@@ -189,6 +209,80 @@ public final class ClientDb implements AutoCloseable {
         } finally {
             conn.setAutoCommit(true);
         }
+    }
+
+    /** Load one root in a single indexed query. Corrupt rows become misses. */
+    public synchronized Map<String, io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> scanCache(String root) throws SQLException {
+        long version;
+        try(var s=conn.createStatement();var r=s.executeQuery("PRAGMA data_version")) { version=r.next()?r.getLong(1):0; }
+        if(version!=cacheDataVersion) { decodedScans.clear();corruptScans.clear();cacheDataVersion=version; }
+        var existing=decodedScans.get(root);if(existing!=null)return existing;
+        var out=new HashMap<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry>();
+        var corrupt=new java.util.HashSet<String>();
+        try(var p=conn.prepareStatement("SELECT path,payload,checksum FROM scan_cache_v2 WHERE root=?")) {
+            p.setString(1,root);
+            try(var r=p.executeQuery()) { while(r.next()) {
+                var e=io.github.azotorp.wowuisync.client.sync.ScanCache.decode(r.getString(2),r.getString(3));
+                if(e!=null && r.getString(1).equals(e.manifest().path())) out.put(r.getString(1),e);else corrupt.add(r.getString(1));
+            }}
+        }
+        rememberScan(root,out);corruptScans.put(root,java.util.Set.copyOf(corrupt));
+        return decodedScans.get(root);
+    }
+    /** Distinguish malformed hints from genuinely absent entries without per-file queries. */
+    public synchronized java.util.Set<String> corruptScanCachePaths(String root) throws SQLException {
+        scanCache(root);return corruptScans.getOrDefault(root,java.util.Set.of());
+    }
+
+    /** Bounded advisory upserts only. An interrupted scan must never infer deletions. */
+    public synchronized void mergeScanCache(String root, Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows) throws SQLException {
+        if(rows.isEmpty())return;
+        conn.setAutoCommit(false);
+        try(var put=conn.prepareStatement("INSERT INTO scan_cache_v2(root,path,payload,checksum) VALUES (?,?,?,?) ON CONFLICT(root,path) DO UPDATE SET payload=excluded.payload,checksum=excluded.checksum")) {
+            int count=0;
+            for(var item:rows.entrySet()) {
+                String payload=io.github.azotorp.wowuisync.client.sync.ScanCache.encode(item.getValue());
+                put.setString(1,root);put.setString(2,item.getKey());put.setString(3,payload);
+                put.setString(4,io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(payload.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                put.addBatch();
+                if(++count%128==0){put.executeBatch();conn.commit();}
+            }
+            put.executeBatch();conn.commit();
+        } catch(SQLException e){conn.rollback();throw e;}
+        finally {decodedScans.remove(root);corruptScans.remove(root);conn.setAutoCommit(true);}
+    }
+    /** Called only after complete, safe discovery/content validation. Never called on interruption. */
+    public synchronized void completeScanCache(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows) throws SQLException {
+        var known=new java.util.HashSet<>(scanCache(root).keySet());known.addAll(corruptScanCachePaths(root));
+        completeScanCache(root,rows,known);
+    }
+    public synchronized void completeScanCache(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows,java.util.Set<String> known) throws SQLException {
+        var obsolete=new java.util.ArrayList<String>();
+        for(String path:known)if(!rows.containsKey(path))obsolete.add(path);
+        if(!obsolete.isEmpty()) {
+            conn.setAutoCommit(false);
+            try(var del=conn.prepareStatement("DELETE FROM scan_cache_v2 WHERE root=? AND path=?")) {
+                int count=0;
+                for(String path:obsolete){del.setString(1,root);del.setString(2,path);del.addBatch();if(++count%128==0){del.executeBatch();conn.commit();}}
+                del.executeBatch();conn.commit();
+            } catch(SQLException e){conn.rollback();throw e;}
+            finally {conn.setAutoCommit(true);}
+        }
+        rememberScan(root,rows);
+    }
+    private void rememberScan(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows) {
+        decodedScans.remove(root);decodedScans.put(root,Map.copyOf(rows));corruptScans.put(root,java.util.Set.of());
+        if(decodedScans.size()>4){String oldest=decodedScans.keySet().iterator().next();decodedScans.remove(oldest);corruptScans.remove(oldest);}
+    }
+    /** Compatibility entry point: bounded verified-hint writes, then complete-scan pruning. */
+    public synchronized void saveScanCache(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows) throws SQLException {
+        saveScanCache(root,rows,scanCache(root));
+    }
+    public synchronized void saveScanCache(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows,
+            Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> old) throws SQLException {
+        var changes=new HashMap<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry>();
+        for(var item:rows.entrySet())if(!item.getValue().equals(old.get(item.getKey())))changes.put(item.getKey(),item.getValue());
+        mergeScanCache(root,changes);completeScanCache(root,rows);
     }
 
     // ------------------------------------------------------------------ bases
