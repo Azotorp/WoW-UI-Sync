@@ -41,4 +41,20 @@ class ChunkSafetyTest {
   Path outside=Files.createDirectory(dir.resolve("outside")),root=Files.createDirectory(dir.resolve("wow"));Files.createSymbolicLink(root.resolve("WTF"),outside);
   assertThrows(IOException.class,()->SyncPaths.resolve(root,"WTF/file.lua"));
  }
+ @Test void ancestorAliasIsAllowedButLinksInsideInstallationAreRejected() throws Exception {
+  Assumptions.assumeFalse(System.getProperty("os.name", "").toLowerCase().contains("win"));
+  Path real=Files.createDirectory(dir.resolve("real"));
+  Path root=Files.createDirectory(real.resolve("wow"));
+  Files.createDirectories(root.resolve("WTF"));
+  Files.writeString(root.resolve("WTF/settings.lua"),"saved=true");
+  Path alias=dir.resolve("alias");Files.createSymbolicLink(alias,real);
+  Path selected=alias.resolve("wow");
+  assertEquals(selected.resolve("WTF/settings.lua").toAbsolutePath(),SyncPaths.resolve(selected,"WTF/settings.lua"));
+  assertEquals(selected.resolve("WTF/new.lua").toAbsolutePath(),SyncPaths.resolve(selected,"WTF/new.lua"));
+  Path outside=Files.createDirectory(dir.resolve("outside-alias"));
+  Files.createSymbolicLink(root.resolve("WTF/link"),outside);
+  assertThrows(IOException.class,()->SyncPaths.resolve(selected,"WTF/link/settings.lua"));
+
+ }
+
 }

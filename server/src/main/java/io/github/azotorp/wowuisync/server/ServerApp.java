@@ -39,7 +39,9 @@ public final class ServerApp {
 
     /** Runs until stopped. Returns the process exit code. */
     public int run() throws Exception {
-        try(var lock=io.github.azotorp.wowuisync.server.maintenance.DataLock.acquire(layout.root())) { return runLocked(); }
+        try(var lock=io.github.azotorp.wowuisync.server.maintenance.DataLock.acquire(layout.root())) {
+            try { return runLocked(); } finally { Logs.close(); }
+        }
     }
     private int runLocked() throws Exception {
         io.github.azotorp.wowuisync.server.maintenance.RepositoryMaintenance.requireSupported(layout);

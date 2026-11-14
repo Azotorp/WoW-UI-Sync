@@ -22,7 +22,19 @@ public final class Logs {
 
     private Logs() {}
 
-    public static void init(Path logsDir, String level) {
+    private static FileHandler fileHandler;
+
+    /** Release our rotating log and its file lock when the server stops. */
+    public static synchronized void close() {
+        if (fileHandler != null) {
+            Logger.getLogger("").removeHandler(fileHandler);
+            fileHandler.close();
+            fileHandler = null;
+        }
+    }
+
+    public static synchronized void init(Path logsDir, String level) {
+        close();
         Logger root = Logger.getLogger("");
         for (Handler h : root.getHandlers()) root.removeHandler(h);
         Formatter f = new Formatter() {
@@ -57,6 +69,7 @@ public final class Logs {
                 fh.setLevel(lvl);
                 fh.setEncoding("UTF-8");
                 root.addHandler(fh);
+                fileHandler = fh;
             } catch (IOException e) {
                 System.err.println("Could not open log file in " + logsDir + ": " + e.getMessage());
             }

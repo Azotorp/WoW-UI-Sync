@@ -30,3 +30,7 @@ Implemented and locally verified on Linux/Java 21. No production server was chan
 - Routine JAR replacement does not need setup or the optional updater. An old binary cannot be made schema-safe retroactively; never downgrade across incompatible schema/repository versions without a matching verified offline checkpoint.
 - The optional JAR updater needs Python 3 and explicit existing unit/data paths; wrapper units require the actual installed JAR path. Its systemd contract was tested with isolated mocks, not a live systemd installation.
 - The server operator can read stored plaintext content. Independent off-host backups remain necessary for disaster recovery.
+
+## Completion follow-up
+
+Final local build: 45 Maven tests, 44 passed, one optional fixture skipped; three updater tests passed. Fixed Windows rotating-log handle release at server exit and macOS ancestor-alias path validation after the initial GitHub matrix exposed them. Installation-internal links remain rejected. See ENGINEERING-REPORT.md for the completion evidence; remote matrix results are separate.

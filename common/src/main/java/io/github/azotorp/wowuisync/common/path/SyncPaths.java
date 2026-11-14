@@ -30,10 +30,13 @@ public final class SyncPaths {
             throw new java.io.IOException("Unsafe sync path");
         java.nio.file.Path base=root.toAbsolutePath().normalize(), target=base.resolve(rel).normalize();
         if(!target.startsWith(base)) throw new java.io.IOException("Path escapes installation");
-        for(java.nio.file.Path p=target;p!=null;p=p.getParent()) {
+        for(java.nio.file.Path p=target;p!=null && p.startsWith(base);p=p.getParent()) {
             if(java.nio.file.Files.isSymbolicLink(p)) throw new java.io.IOException("Symbolic links are not allowed: "+p);
-            if(java.nio.file.Files.exists(p,java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
-               !p.toRealPath().equals(p.toAbsolutePath().normalize().toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS)))
+            // Resolve ancestor aliases (for example macOS /var -> /private/var),
+            // then inspect this component itself for junctions or other redirects.
+            if(p.getParent()!=null && java.nio.file.Files.exists(p,java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+               !p.toRealPath().equals(p.getParent().toRealPath().resolve(p.getFileName())
+                       .toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS)))
                 throw new java.io.IOException("Linked directory is not allowed");
         }
         return target;

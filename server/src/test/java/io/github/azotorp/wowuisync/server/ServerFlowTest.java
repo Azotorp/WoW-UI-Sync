@@ -204,6 +204,9 @@ class ServerFlowTest {
         } finally {
             Files.writeString(l.stopFlag(), "stop");
             t.join(20_000);
+            assertFalse(t.isAlive(), "Server did not stop");
+            assertTrue(java.util.Arrays.stream(java.util.logging.Logger.getLogger("").getHandlers())
+                    .noneMatch(h -> h instanceof java.util.logging.FileHandler), "Server log remains open");
         }
     }
 
