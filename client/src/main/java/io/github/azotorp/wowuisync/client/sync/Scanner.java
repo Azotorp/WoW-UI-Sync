@@ -125,7 +125,7 @@ public final class Scanner {
                 if(ex.isExcluded(r+"/x") && ex.isExcluded(r+"/x/y")) return FileVisitResult.SKIP_SUBTREE;
                 if(Files.isSymbolicLink(p) || a.isOther()) throw new IOException("Linked directory");
                 // Validate each directory once, rather than every ancestor for every cache hit.
-                if(!p.toRealPath().equals(p.toAbsolutePath().normalize().toRealPath(LinkOption.NOFOLLOW_LINKS)))
+                if(!p.toRealPath().equals(p.getParent().toRealPath().resolve(p.getFileName()).toRealPath(LinkOption.NOFOLLOW_LINKS)))
                     throw new IOException("Linked directory");
                 return FileVisitResult.CONTINUE;
             }

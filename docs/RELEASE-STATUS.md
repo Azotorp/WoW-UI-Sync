@@ -33,4 +33,4 @@ Implemented and locally verified on Linux/Java 21. No production server was chan
 
 ## Completion follow-up
 
-Final local build: 45 Maven tests, 44 passed, one optional fixture skipped; three updater tests passed. Fixed Windows rotating-log handle release at server exit and macOS ancestor-alias path validation after the initial GitHub matrix exposed them. Installation-internal links remain rejected. See ENGINEERING-REPORT.md for the completion evidence; remote matrix results are separate.
+Final local build: 46 Maven tests, 45 passed, one optional fixture skipped; three updater tests passed. Fixed Windows rotating-log handle release at server exit and macOS ancestor-alias path validation after the initial GitHub matrix exposed them. Installation-internal links remain rejected. See ENGINEERING-REPORT.md for the completion evidence; remote matrix results are separate.

@@ -70,4 +70,18 @@ class ScannerCacheTest {
   assertNotNull(ScanCache.identity(missingKey,true));assertNull(ScanCache.identity(missingKey,false));
  }
 
+ @Test void scansAndCachesThroughAncestorAliasWithoutFollowingInternalLinks()throws Exception {
+  Assumptions.assumeFalse(System.getProperty("os.name", "").toLowerCase().contains("win"));
+  Path alias=dir.resolve("alias");Files.createSymbolicLink(alias,dir);
+  try(var db=db()) {
+   String expected=scan(db).manifest().fingerprint();
+   wow=alias.resolve("wow");
+   assertEquals(expected,scan(db).manifest().fingerprint());
+   assertEquals(expected,scan(db).manifest().fingerprint());assertEquals(2,stats.cacheHits());
+   Path outside=Files.createDirectory(dir.resolve("outside"));
+   Files.createSymbolicLink(wow.resolve("WTF/link"),outside);
+   assertThrows(java.io.IOException.class,()->scan(db));
+  }
+ }
+
 }

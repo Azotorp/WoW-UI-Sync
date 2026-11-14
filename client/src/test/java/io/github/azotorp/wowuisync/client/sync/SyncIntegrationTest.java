@@ -52,12 +52,23 @@ class SyncIntegrationTest {
         Files.write(p, b);
     }
 
+    private final java.util.List<ClientApp> clients = new java.util.ArrayList<>();
+
+    @org.junit.jupiter.api.AfterEach
+    void closeClients() throws Exception {
+        for (ClientApp app : clients) {
+            try { app.disconnect(); } finally { app.db().close(); }
+        }
+    }
+
     private ClientApp client(String name) throws Exception {
         ClientPaths paths = new ClientPaths(dir.resolve(name + "-data"));
         ClientConfig cfg = ClientConfig.load(paths.config());
         cfg.deviceNickname = name;
         cfg.installRoot = dir.resolve(name + "-wow").toString();
-        return new ClientApp(paths, cfg, ClientDb.open(paths.db(), paths.dbBackups()));
+        ClientApp app = new ClientApp(paths, cfg, ClientDb.open(paths.db(), paths.dbBackups()));
+        clients.add(app);
+        return app;
     }
 
     @Test
