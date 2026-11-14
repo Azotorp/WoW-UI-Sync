@@ -73,6 +73,42 @@ The folder **name is not a reliable installation identifier**. `C:\Games\WoW`, `
 
 Reference evidence checked 2026-11-14: Blizzard forum install layouts identify `World of Warcraft Launcher.exe` in the parent directory; Microsoft documents `InstallLocation` in Windows uninstall registry; community examples identify Blizzard's legacy `InstallPath` registry value. These are **candidate sources**, not universal guarantees.
 
+## OS-aware discovery: Windows, macOS and Linux (owner decisions, 2026-11-14)
+
+Treat the client JAR as **cross-platform**. Pick the appropriate strategy from the detected operating system (not by guessing from a path string); use standard Java filesystem checks for all platforms. Detecting a WoW installation means identifying the **parent game install root**, not just the launcher executable, and then enumerating recognizable version directories. Preserve the selected version/profile IDs and client/server protocol.
+
+### Windows
+- Only Windows uses **Windows registry** queries: existing Blizzard/Windows uninstall install-path hints, read-only, with both 32- and 64-bit registry views when relevant. Missing/stale registry entries must never block detection.
+- Check the known filename `World of Warcraft Launcher.exe` as a high-confidence marker, plus game/version content for installations without that launcher. Do not require any particular parent directory name.
+- Search only bounded likely folders (Program Files variants, Games, Blizzard, and similar), then validate actual game contents. Respect filesystem semantics and custom/non-default drives; don't recursively scan all disks.
+
+### macOS — research and community validation needed
+- Investigate **native macOS application bundles**, especially `World of Warcraft.app` and the app bundle's `Contents/MacOS` executable, rather than checking for Windows `.exe` launchers.
+- Initial likely candidate root is `/Applications/World of Warcraft`, but names and install locations can vary. Identify `World of Warcraft.app` **inside a version subdirectory** as well as possible older parent layouts. Validate the enclosing game/version directory structure, not merely the `.app` suffix.
+- Research whether the Battle.net launcher provides a reliable install-path hint on macOS; do not treat `Battle.net.app` alone as proof of a WoW installation. macOS has no Windows registry.
+- There is **no Mac available to the owner for live testing**. Cross-platform logic should have testable directory fixtures and path-resolution unit tests; **actual macOS UI/filesystem integration must remain explicitly unverified** until an open-source contributor tests it. Invite precise bug reports/PRs rather than claiming success without hardware validation.
+
+### Linux — Wine, Proton, copied Windows installs
+- Do **not** assume WoW cannot be installed on Linux. A Windows WoW executable can exist in an ordinary Linux directory or inside a **Wine/Proton prefix**; the detector is locating data, not trying to run the game.
+- Check existing, limited user-local candidates, such as `~/.wine/drive_c`, `~/Games`, Lutris game folders, Bottles prefixes, Steam `steamapps/compatdata/*/pfx/drive_c`, and Heroic-managed prefixes when present. Prefixes may contain `Program Files` or `Program Files (x86)`; installation paths may be configured **outside** prefixes. Candidate path examples are hints only, not mandatory layouts.
+- Seek Windows-style markers including `World of Warcraft Launcher.exe`, but **do not require a launcher**. Recognize version folders by appropriate `WoW*.exe`, `Interface`, `WTF`, and/or other validated installation markers. For custom locations, allow Browse, paste and optionally launcher-configured paths.
+- Linux directory names are **case-sensitive**; enumerate real entries instead of blindly converting to lower case or constructing lots of case permutations. Follow only bounded, safe candidate directories; avoid symlink loops, whole-home recursive searches, unreadable folders and huge Steam-prefix sweeps on the UI thread.
+- Linux Wine's registry is **not** the native Windows registry. Do not invoke `reg query` or assume Windows APIs exist there. A future optional Wine-registry hint must be deliberately designed and separately tested.
+
+### Shared user experience and testing
+- Valid previously saved custom path wins. If multiple roots validate, let the user choose. No silent overwrite of config.
+- Automatic discovery runs at first setup/Settings open, and after manual selection. Remove the redundant Detect button and update **Detected versions** automatically. Explain bad paths, including direct selection of `_forever_`.
+- Run bounded discovery off the Swing event-dispatch thread; cancel or time-limit slow probes and keep browsing responsive. No background process or drive-wide indefinite crawl.
+- Test via filesystem fixtures on all runnable environments, including **macOS-style `.app` bundles**, Windows roots with arbitrary names, and Linux Wine/Proton paths with case-sensitive names. Tests on non-Mac hardware **do not** count as macOS validation.
+- **Client-only scope**: replacing the client JAR must suffice, no server restarts or network/protocol changes. Any server dependency requires the owner's explicit approval first.
+
+### Research sources for the implementation team
+
+- Warcraft Wiki's documented macOS `/Applications/World of Warcraft/World of Warcraft.app` and embedded app-bundle executable (some layouts differ by version).
+- Blizzard's Mac technical support discussion (Nov. 2024) describing `World of Warcraft.app` within the game-version folder.
+- Lutris' World of Warcraft Linux installation documentation recommends keeping game data outside Wine prefixes; do not hardcode a prefix-only strategy.
+- Linux WoW community installation examples describe `~/.wine/drive_c`, Lutris and Steam Proton compatibility prefixes. These are candidate examples; verify actual installed files.
+
 ## Verification and acceptance
 
 - Reproduce the slow folder navigation on the original client when possible; record Windows version, Java runtime, path type, and elapsed times for opening and navigating.
