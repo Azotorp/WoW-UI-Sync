@@ -222,10 +222,11 @@ final class SyncController {
         AtomicReference<LocalScan> scanRef = new AtomicReference<>();
         Bg.run(() -> {
             ops.serverHead(c.conn(),c.account(),c.flavor());
+            w.progress.phase("Reading authoritative pull source");
+            SyncOps.PullSource source=ops.pullSource(c.conn(),c.account(),c.flavor());
             LocalScan scan = ops.scan(c.flavor(), scanProgress(), ()->{try{control.checkpoint();return false;}catch(CancelledException e){return true;}});
             scanRef.set(scan);
-            w.progress.phase("Reading " + c.account().username() + "'s addon list…");
-            return ops.pullSource(c.conn(), c.account(), c.flavor());
+            return source;
         }, src -> {
             w.progress.phase("Choose what to pull…");
             PullSelectionDialog.Choice ch = PullSelectionDialog.show(w, c.account().username(), src, scanRef.get());

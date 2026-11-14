@@ -44,7 +44,7 @@ Sampled process RSS (50 ms sampling, includes JVM/source-launch/compiler/cache/G
 
 ## Validation and delivery
 
-Local suite: 52 tests, 51 passed, one optional external-key fixture skipped, zero failures/errors in the completed runs. Added partial-cache cancellation/restart safety, separate-process normal-close flushing, fresh discovery metadata/TSM-style write, mid-read mutation, deterministic parallel references, cancellation/worker cleanup, miss reasons, absent/zero-file heads, retained recovery without a head, error propagation, pending journals, stale empty-head begin races and mutation before commit. Existing migration/security/quota/flavor/TLS/recovery/sync tests remain.
+Local suite: 53 tests, 52 passed, one optional external-key fixture skipped, zero failures/errors in the completed runs. Added partial-cache cancellation/restart safety, separate-process normal-close flushing, fresh discovery metadata/TSM-style write, mid-read mutation, deterministic parallel references, cancellation/worker cleanup, miss reasons, absent/zero-file heads, retained recovery without a head, error propagation, pending journals, stale empty-head begin races and mutation before commit. Existing migration/security/quota/flavor/TLS/recovery/sync tests remain.
 
 The full integration flow also passed against an actual **main 1.1.1-alpha server JAR in a separate JVM** (`-Dwowuisync.integrationServerJar=/absolute/main-server.jar`), including push/pull/restore/recovery/head races. Protocol/repository/server schema/client schema remain 2. No installed server replacement is necessary for the client-only package. Server runtime behavior is unchanged; release packaging adds the client-only ZIP.
 
@@ -53,3 +53,10 @@ Required compile/package checks, updater tests and native GitHub Linux/Windows/m
 Reproduce with `tools/ScanWorkload.java` against the baseline and candidate JARs, a fresh fixture per cache and `-Dwowuisync.scanWorkers=1|2|4`. `tools/measure_scan.py` samples Linux process RSS. `tools/ProfileScan.java` records optional diagnostic JFR. Keep benchmark runs separate from tests/builds and repeat on native storage before choosing workers.
 
 Delivery contains a versioned deployment ZIP, client-only ZIP and SHA-256 sidecars. Close client, replace its existing JAR, reopen beside its existing data directory. Preserve settings, pins, credentials, installation IDs and cache. Server JAR-only upgrades, if separately chosen by the operator, retain the existing unit/data paths and need no setup. Nothing was merged or deployed. Native CI proves correctness/packaging, not desktop speed, antivirus behavior, HDD/network-drive throughput or every power-loss race.
+
+
+## Completion evidence
+
+`./compile.sh` and `./package.sh` passed locally (full JDK workaround described above); packaging runs all 53 tests, with 52 passed and the optional external-key fixture skipped. Three isolated updater tests passed. Both deployment/client-only archives were inspected for exact membership, checksums, JAR entrypoints/versions and executable shell permissions. The 1.1.1-alpha separate-process compatibility flow passed again after the precommit-mutation regression was added.
+
+PR: https://github.com/Azotorp/WoW-UI-Sync/pull/3. Initial native matrix on implementation commit `aaad6311f1f8f9fd880b5fb5c64b3afdc6ceeb13`: https://github.com/Azotorp/WoW-UI-Sync/actions/runs/43570240286. Linux, Windows and macOS build/test/package/artifact steps succeeded; final completion includes a rerun after progress-label and documentation follow-ups. See the PR checks for the exact final commit. These are correctness/portability checks, not native desktop performance benchmarks.

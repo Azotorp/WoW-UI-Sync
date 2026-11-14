@@ -13,6 +13,8 @@ class ProgressTest {
   SwingUtilities.invokeAndWait(()->assertTrue(bar(p[0]).isIndeterminate()));
   p[0].count("Files checked",2,4);
   SwingUtilities.invokeAndWait(()->{assertFalse(bar(p[0]).isIndeterminate());assertEquals(500,bar(p[0]).getValue());});
+  p[0].count("Files checked",4,4);p[0].phase("Upload staging");
+  SwingUtilities.invokeAndWait(()->{assertTrue(bar(p[0]).isIndeterminate());assertFalse(bar(p[0]).getString().contains("100"));});
   p[0].done("Complete");SwingUtilities.invokeAndWait(()->assertEquals(1000,bar(p[0]).getValue()));
  }
  @Test void cancellationClosesOutstandingWorkExactlyOnceIncludingRegistrationRace(){

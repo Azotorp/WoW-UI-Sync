@@ -78,6 +78,7 @@ public final class SyncOps {
         if(head.currentFingerprint()==null)return null;
         LocalScan scan=statusScan(f,progress,cancelled);
         if(cancelled.getAsBoolean())throw new CancelledException();
+        if(progress!=null)progress.phase("Checking server head after local scan");
         return status(c,account,f,scan); // recheck: another client can push during the scan
     }
     public LocalScan scan(Flavor f, Scanner.Progress progress, BooleanSupplier cancelled) throws Exception {
