@@ -1,0 +1,7 @@
+Nov 13, 2026 11:11:45 PM io.github.azotorp.wowuisync.server.db.ServerDb migrate
+INFO: Database migrated to schema version 1
+Nov 13, 2026 11:11:45 PM io.github.azotorp.wowuisync.server.db.ServerDb migrate
+INFO: Database migrated to schema version 2
+ready version=1.1.1-alpha protocol=2 tls=605675f9351c8a016e93ec2d926ad02b16b341dee93438be2843166534f83b89
+ready version=1.1.1-alpha protocol=2 tls=605675f9351c8a016e93ec2d926ad02b16b341dee93438be2843166534f83b89
+PASS: same JAR path/startup arguments; v1 login; automatic migration; unchanged account/config/TLS; verified legacy restore; restart without repeat migration.

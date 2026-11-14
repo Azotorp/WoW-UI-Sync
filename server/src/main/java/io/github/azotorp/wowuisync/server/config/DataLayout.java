@@ -19,5 +19,8 @@ public record DataLayout(Path root) {
     public Path accountDir(String accountId) { return accounts().resolve(accountId); }
     public Path profileDir(String accountId, String profileId) { return accountDir(accountId).resolve("profiles").resolve(profileId); }
     public Path objects(String accountId, String profileId) { return profileDir(accountId, profileId).resolve("objects"); }
+    public Path chunks(String accountId) { return accountDir(accountId).resolve("chunks-v2"); }
+    public Path snapshots(String accountId,String profileId) { return profileDir(accountId,profileId).resolve("snapshots-v2"); }
+    public Path head(String accountId,String profileId) { return profileDir(accountId,profileId).resolve("head-v2"); }
     public Path currentManifest(String accountId, String profileId) { return profileDir(accountId, profileId).resolve("current.manifest"); }
 }

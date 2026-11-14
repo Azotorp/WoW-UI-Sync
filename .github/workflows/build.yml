@@ -1,12 +1,12 @@
 name: build
-
-on:
-  push:
-  pull_request:
-
+on: [push, pull_request]
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -14,9 +14,13 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Build
-        run: mvn -B clean package
+      - name: Build, test, package and verify
+        shell: bash
+        run: ./package.sh
+      - name: Test optional systemd JAR updater with isolated fixtures
+        if: runner.os == 'Linux'
+        run: python3 tools/test_jar_updater.py
       - uses: actions/upload-artifact@v4
         with:
-          name: wow-ui-sync-jars
-          path: dist/
+          name: wow-ui-sync-${{ matrix.os }}
+          path: dist/releases/

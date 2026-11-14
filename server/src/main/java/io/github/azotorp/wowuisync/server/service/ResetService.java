@@ -35,16 +35,18 @@ public final class ResetService {
         guard.checkIp(ip);
         String generic = "If that account exists and has an email address, a code was sent. It is valid for " + CODE_MINUTES + " minutes.";
         String q = m.username() == null ? "" : m.username().trim();
+        String rate=Hashing.sha256Hex(q.toLowerCase(java.util.Locale.ROOT).getBytes(StandardCharsets.UTF_8));
+        if(!ctx.db.claimCooldown("reset-ip:"+ip,60_000) || !ctx.db.claimCooldown("reset-query:"+rate,120_000)) return new Msg.Ok(generic);
         List<AccountRow> targets = new ArrayList<>();
         ctx.db.accountByUsername(q).ifPresent(targets::add);
         if (targets.isEmpty() && q.contains("@")) targets.addAll(ctx.db.accountsByEmail(q));
         for (AccountRow a : targets) {
-            if (a.email() == null || a.usesKey()) continue;
+            if (a.email() == null || a.usesKey() || !ctx.db.emailVerified(a.id(),a.email()) || !ctx.db.claimCooldown("reset:"+a.id(),120_000)) continue;
             String code = String.format("%06d", Passwords.RANDOM.nextInt(1_000_000));
             ctx.db.putResetCode(a.id(), hash(a.id(), code), System.currentTimeMillis() + CODE_MINUTES * 60_000, ATTEMPTS);
             String to = a.email();
             String user = a.username();
-            Thread.ofVirtual().start(() -> {
+            try { ctx.mailQueue.execute(() -> {
                 try {
                     ctx.smtp.send(to, Version.APP_NAME + " password reset code",
                             "Your " + Version.APP_NAME + " password reset code for account '" + user + "' is:\n\n    " + code
@@ -53,7 +55,7 @@ public final class ResetService {
                 } catch (Exception e) {
                     Logs.LOG.warning("Could not send reset email for " + user + ": " + e.getMessage());
                 }
-            });
+            }); } catch(java.util.concurrent.RejectedExecutionException full) { Logs.LOG.warning("Mail queue full"); }
         }
         return new Msg.Ok(generic);
     }
@@ -86,6 +88,24 @@ public final class ResetService {
         ctx.sessions.endForAccount(a.id(), null);
         Logs.LOG.info("Password reset by email for " + a.username());
         return new Msg.Ok("Your password was changed. You can log in now.");
+    }
+
+    public Msg.Ok verificationRequest(AccountRow a) throws Exception {
+        if(!ctx.smtp.enabled()) throw new ApiException(ErrorCodes.UNAVAILABLE,"Email delivery is unavailable");
+        if(a.email()==null) throw new ApiException(ErrorCodes.INVALID,"Set an email address first");
+        if(!ctx.db.claimCooldown("verify:"+a.id(),120_000)) return new Msg.Ok("Wait two minutes before requesting another code");
+        String token=Passwords.randomToken(24);
+        ctx.db.setEmailToken(a.id(),a.email(),hash(a.id(),token),System.currentTimeMillis()+900_000);
+        try { ctx.mailQueue.execute(()-> {
+            try { ctx.smtp.send(a.email(),Version.APP_NAME+" verify email","Your verification code is:\n\n"+token+"\n\nExpires in 15 minutes."); }
+            catch(Exception e) { Logs.LOG.warning("Verification delivery failed"); }
+        }); } catch(java.util.concurrent.RejectedExecutionException e) { throw new ApiException(ErrorCodes.BUSY,"Mail queue is full"); }
+        return new Msg.Ok("Verification code sent. Enter it to enable password recovery.");
+    }
+    public Msg.Ok verificationConfirm(AccountRow a,Msg.EmailVerifyConfirm m) throws Exception {
+        if(!ctx.db.claimCooldown("verify-attempt:"+a.id(),3000)) throw new ApiException(ErrorCodes.BUSY,"Wait before trying again");
+        if(m.token()==null || !ctx.db.confirmEmail(a.id(),a.email(),hash(a.id(),m.token().trim()))) throw new ApiException(ErrorCodes.INVALID,"Code is invalid or expired");
+        Logs.LOG.info("Recovery email verified for "+a.username());return new Msg.Ok("Recovery email verified");
     }
 
     private static String hash(String accountId, String code) {

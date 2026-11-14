@@ -37,12 +37,12 @@ public final class JoinInviteDialog extends JDialog {
     private final ClientApp app;
     private final JTextArea code = new JTextArea(3, 40);
     private final JTextField username = new JTextField(20);
-    private final JRadioButton useKey = new JRadioButton("Private key file");
+    private final JRadioButton useKey = new JRadioButton("Generate device key (recommended), or choose a key");
     private final JRadioButton usePw = new JRadioButton("Password");
     private final JTextField keyPath = new JTextField(24);
     private final JPasswordField pw1 = new JPasswordField(20);
     private final JPasswordField pw2 = new JPasswordField(20);
-    private final JCheckBox savePw = new JCheckBox("Save password on this PC (plain text)");
+    private final JCheckBox savePw = new JCheckBox("Save in OS credential vault");
     private final JTextField email = new JTextField(24);
     private final JButton join = new JButton("Join");
     private ConnectionRecord result;
@@ -123,11 +123,8 @@ public final class JoinInviteDialog extends JDialog {
         String password = null;
         Path key = null;
         if (useKey.isSelected()) {
-            if (keyPath.getText().isBlank()) {
-                Dialogs.error(this, "Choose your private key file.");
-                return;
-            }
-            key = Paths.get(keyPath.getText().trim());
+            try { key=keyPath.getText().isBlank()?io.github.azotorp.wowuisync.client.crypto.GeneratedKeys.create(app.paths().root().resolve("keys")):Paths.get(keyPath.getText().trim()); }
+            catch(Exception e) { Dialogs.error(this,e);return; }
             try {
                 publicKey = loadPublic(key);
             } catch (CancelledException e) {
@@ -151,22 +148,32 @@ public final class JoinInviteDialog extends JDialog {
         String pw = password;
         Path keyFile = key;
         join.setEnabled(false);
+        String connectionId=UUID.randomUUID().toString();
         Bg.run(() -> {
-            try (ServerConnection c = ServerConnection.open(ic.host(), ic.port(), app.db(), ic.fingerprint(), new UiCallbacks(this),
-                    app.config().deviceId, app.config().deviceNickname)) {
-                return c.call(new Msg.InviteRedeem(ic.secret(), u, pw, pk, email.getText().trim()), Msg.AccountInfo.class);
-            }
-        }, info -> {
-            ConnectionRecord rec = new ConnectionRecord(UUID.randomUUID().toString(), info.username() + "@" + ic.host(), ic.host(), ic.port(),
+            ServerConnection c = ServerConnection.open(ic.host(), ic.port(), app.db(), ic.fingerprint(), new UiCallbacks(this),
+                    app.config().deviceId, app.config().deviceNickname);
+            try {
+                Msg.AccountInfo info=c.call(new Msg.InviteRedeem(ic.secret(),u,pw,pk,email.getText().trim()),Msg.AccountInfo.class);
+                ConnectionRecord login=new ConnectionRecord(connectionId,info.username()+"@"+ic.host(),ic.host(),ic.port(),info.username(),
+                    keyFile!=null?ConnectionRecord.AUTH_KEY:ConnectionRecord.AUTH_PASSWORD,pw,keyFile==null?null:keyFile.toString());
+                c.login(login,new UiCallbacks(this));
+                return new Joined(c,info);
+            } catch(Exception e) { c.close();throw e; }
+        }, joined -> {
+            Msg.AccountInfo info=joined.info();
+            ConnectionRecord rec = new ConnectionRecord(connectionId, info.username() + "@" + ic.host(), ic.host(), ic.port(),
                     info.username(), keyFile != null ? ConnectionRecord.AUTH_KEY : ConnectionRecord.AUTH_PASSWORD,
                     keyFile == null && savePw.isSelected() ? pw : null, keyFile == null ? null : keyFile.toString());
             try {
                 app.db().saveConnection(rec);
             } catch (Exception e) {
-                Dialogs.error(this, e);
-                return;
+                try {
+                    app.db().saveConnection(new ConnectionRecord(rec.id(),rec.name(),rec.host(),rec.port(),rec.username(),rec.authType(),null,rec.keyPath()));
+                    Dialogs.warn(this,"Account created and signed in. The OS password vault was unavailable; the saved connection will prompt for your password next time.");
+                } catch(Exception storageError) {joined.connection().close();Dialogs.error(this,"Account created, but connection settings could not be saved. Add an existing-account connection using the same credential.");dispose();return;}
             }
-            Dialogs.info(this, "Account '" + info.username() + "' created (" + info.role() + "). A connection was saved; select it and press Connect.");
+            app.setConnection(joined.connection(),new ConnectionRecord(rec.id(),rec.name(),rec.host(),rec.port(),rec.username(),rec.authType(),null,rec.keyPath()));
+            Dialogs.info(this,"Account created and signed in."+(keyFile==null?"":" Your device key is stored locally. Keep a secure recovery copy before moving to another PC."));
             result = rec;
             dispose();
         }, e -> {
@@ -174,6 +181,8 @@ public final class JoinInviteDialog extends JDialog {
             if (!(e instanceof CancelledException)) Dialogs.error(this, e);
         });
     }
+
+    private record Joined(ServerConnection connection,Msg.AccountInfo info) {}
 
     private String loadPublic(Path key) throws Exception {
         char[] pass = null;

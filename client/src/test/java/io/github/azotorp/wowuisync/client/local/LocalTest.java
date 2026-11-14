@@ -43,17 +43,11 @@ class LocalTest {
             assertEquals(1, addons.size());
             assertEquals(2, addons.get(0).dataFiles().size());
 
-            BackupRecord b = Backups.create(db, flavor, Backups.REASON_MANUAL, null, null);
-            assertTrue(Files.isDirectory(flavor.resolve("WTF_" + b.suffix())));
-            AddonManager.deleteAddon(flavor, addons.get(0));
-            write(flavor.resolve("WTF/new.txt"), "n");
-            assertFalse(Files.exists(flavor.resolve("Interface/AddOns/WeakAuras")));
-            Thread.sleep(1100);
-            Backups.restore(db, flavor, "forever", b, null);
-            assertTrue(Files.exists(flavor.resolve("Interface/AddOns/WeakAuras/WeakAuras.toc")));
-            assertFalse(Files.exists(flavor.resolve("WTF/new.txt")));
-            assertEquals(2, Backups.list(db, flavor).size());
-            assertEquals("local", Backups.list(db, flavor).get(0).account());
+            assertThrows(io.github.azotorp.wowuisync.client.util.UserException.class,()->Backups.create(db,flavor,Backups.REASON_MANUAL,null,null));
+            write(flavor.resolve("WTF_local_2026-11-01_12-00-00/old.lua"),"old = true");
+            assertEquals(1,Backups.list(db,flavor).size());
+            assertEquals("old = true",Files.readString(flavor.resolve("WTF_local_2026-11-01_12-00-00/old.lua")));
+
         }
     }
 }

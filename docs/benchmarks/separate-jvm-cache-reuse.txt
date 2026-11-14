@@ -1,0 +1,3 @@
+Statistics[discovered=10001, cacheHits=10001, hashedFiles=0, bytesHashed=0, discoveryNanos=99096888, cacheNanos=191066897, metadataNanos=33529000, hashingNanos=0, manifestNanos=15106245, persistenceNanos=14951054, elapsedNanos=386450015]
+Nov 13, 2026 11:12:18 PM io.github.azotorp.wowuisync.client.sync.Scanner scan
+INFO: Scan Statistics[discovered=10001, cacheHits=10001, hashedFiles=0, bytesHashed=0, discoveryNanos=99096888, cacheNanos=191066897, metadataNanos=33529000, hashingNanos=0, manifestNanos=15106245, persistenceNanos=14951054, elapsedNanos=386450015] verified=false

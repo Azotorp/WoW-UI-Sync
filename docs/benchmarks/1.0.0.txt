@@ -1,0 +1,7 @@
+first files=10001 ms=1170.380 rchar=97420096 wchar=3122152 fingerprint=0283776718f7ef1dddda859c403aa5d59311d5a958ce50c32b5ae21cdccf7b34
+unchanged files=10001 ms=201.891 rchar=12064728 wchar=6794064 fingerprint=0283776718f7ef1dddda859c403aa5d59311d5a958ce50c32b5ae21cdccf7b34
+restart files=10001 ms=155.016 rchar=10835704 wchar=3701624 fingerprint=0283776718f7ef1dddda859c403aa5d59311d5a958ce50c32b5ae21cdccf7b34
+one-changed files=10001 ms=172.977 rchar=12007067 wchar=6744912 fingerprint=0a279ac3ecb972b0a925d1b4a7c85bea0a19527922f109a364f353bcba235f4b
+one-deleted files=10000 ms=173.174 rchar=8967828 wchar=3705712 fingerprint=1a040adcc695fd753b88befa1df4d6f3c325cb4115085301fb34bee7e704c5de
+new-addon files=10001 ms=170.158 rchar=12019375 wchar=6757248 fingerprint=34ce75b5fd3e2ba42bd809f297f9b25d128a9c9a451dce962ab0cad6cee97962
+no-change files=10001 ms=193.110 rchar=8992428 wchar=3713952 fingerprint=34ce75b5fd3e2ba42bd809f297f9b25d128a9c9a451dce962ab0cad6cee97962

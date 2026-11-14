@@ -62,14 +62,7 @@ public final class Installer {
             }
         }
         DataLayout layout = new DataLayout(data);
-        if (Files.exists(layout.db())) {
-            try (ServerDb db = ServerDb.open(layout.db(), layout.dbBackups())) {
-                if (db.root().isPresent()) {
-                    in.println("This data folder already has a root account. To change root's credentials, run reset-root.");
-                    return null;
-                }
-            }
-        }
+        if(Files.exists(layout.db())) throw new java.io.IOException("Data is already initialized. Use update/migrate; setup will not overwrite it.");
 
         // 3. Port and public host
         int port;
@@ -107,7 +100,7 @@ public final class Installer {
         Files.createDirectories(layout.dbBackups());
         ConfigIO.write(layout.config(), cfg);
         try {
-            ConfigIO.write(ConfigIO.jarSideConfig(), cfg);
+            io.github.azotorp.wowuisync.common.manifest.ManifestIO.write(ConfigIO.jarSideConfig(),io.github.azotorp.wowuisync.common.json.Json.toBytes(java.util.Map.of("dataDir",data.toString())));
         } catch (Exception e) {
             in.println("Note: could not write server.json next to the jar (" + e.getMessage() + "). Start the server with --data " + data);
         }
@@ -128,6 +121,7 @@ public final class Installer {
             }
             db.insertAccount(root);
         }
+        io.github.azotorp.wowuisync.server.maintenance.RepositoryMaintenance.markFormat(layout);
         Permissions.lockDown(layout, true);
 
         // 8. Summary

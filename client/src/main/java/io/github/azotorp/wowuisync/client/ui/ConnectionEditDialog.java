@@ -34,7 +34,7 @@ public final class ConnectionEditDialog extends JDialog {
     private final JRadioButton usePassword = new JRadioButton("Password");
     private final JRadioButton useKey = new JRadioButton("Private key file");
     private final JPasswordField password = new JPasswordField(24);
-    private final JCheckBox savePassword = new JCheckBox("Save password on this PC (stored in plain text)");
+    private final JCheckBox savePassword = new JCheckBox("Save in OS credential vault");
     private final JTextField keyPath = new JTextField(24);
     private final JButton browse = new JButton("Browse…");
     private ConnectionRecord result;

@@ -106,7 +106,7 @@ public final class ProgressPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             bar.setIndeterminate(total <= 0);
             if (total > 0) bar.setValue((int) Math.min(1000, done * 1000 / total));
-            files.setText(label + ": " + done + " of " + total);
+            files.setText(label + ": " + done + (total > 0 ? " of " + total : ""));
         });
     }
 

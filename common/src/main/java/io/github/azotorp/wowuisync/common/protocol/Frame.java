@@ -29,7 +29,7 @@ public record Frame(MessageType type, int requestId, byte[] payload) {
             if (type.binary()) {
                 ByteBuffer b = ByteBuffer.wrap(payload);
                 int hl = b.getInt();
-                if (hl < 0 || hl > payload.length - 4) throw new IOException("Bad binary header");
+                if (hl < 0 || hl > 65536 || hl > payload.length - 4) throw new IOException("Bad binary header");
                 byte[] h = new byte[hl];
                 b.get(h);
                 return Json.fromBytes(h, type.type());

@@ -1,5 +1,4 @@
 @echo off
 setlocal
-call "%~dp0common.bat" || exit /b 1
-"%JAVA%" -jar "%JAR%" reset-root %*
-pause
+java -jar "%~dp0..\dist\wow-ui-sync-server.jar" reset-root %*
+exit /b %ERRORLEVEL%

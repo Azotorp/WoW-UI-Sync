@@ -129,36 +129,19 @@ public enum Codec {
 
     /** Decompresses {@code data}. {@code originalSize} may be -1 if unknown. */
     public byte[] decompress(byte[] data, long originalSize) {
-        switch (this) {
-            case RAW:
-                return data;
-            case ZSTD: {
-                long size = originalSize >= 0 ? originalSize : Zstd.getFrameContentSize(data);
-                if (size >= 0 && size <= Integer.MAX_VALUE - 16) return Zstd.decompress(data, (int) size);
-                return readAll(wrapIn(new java.io.ByteArrayInputStream(data)));
+        final int limit = 32 << 20;
+        if (originalSize > limit || originalSize < -1) throw new IllegalArgumentException("Decoded payload too large");
+        try (InputStream in = wrapIn(new java.io.ByteArrayInputStream(data));
+             ByteArrayOutputStream out = new ByteArrayOutputStream((int)Math.min(65536, Math.max(0, originalSize)))) {
+            byte[] buf = new byte[65536]; int n;
+            while ((n=in.read(buf))!=-1) {
+                if ((long)out.size()+n>limit || (originalSize>=0 && (long)out.size()+n>originalSize))
+                    throw new IOException("Decoded payload exceeds limit");
+                out.write(buf,0,n);
             }
-            default: {
-                Inflater inf = new Inflater();
-                try {
-                    inf.setInput(data);
-                    ByteArrayOutputStream bos = new ByteArrayOutputStream(
-                            originalSize > 0 && originalSize < Integer.MAX_VALUE ? (int) originalSize : data.length * 3);
-                    byte[] buf = new byte[65536];
-                    while (!inf.finished()) {
-                        int n = inf.inflate(buf);
-                        if (n == 0 && (inf.needsInput() || inf.needsDictionary())) {
-                            throw new IOException("Truncated deflate stream");
-                        }
-                        bos.write(buf, 0, n);
-                    }
-                    return bos.toByteArray();
-                } catch (Exception e) {
-                    throw new UncheckedIOException(new IOException("Corrupt deflate data", e));
-                } finally {
-                    inf.end();
-                }
-            }
-        }
+            if(originalSize>=0 && out.size()!=originalSize) throw new IOException("Decoded length mismatch");
+            return out.toByteArray();
+        } catch(IOException e) { throw new UncheckedIOException(e); }
     }
 
     public OutputStream wrapOut(OutputStream out, int level) throws IOException {

@@ -1,0 +1,23 @@
+[Unit]
+Description=WoW UI Sync server
+After=network.target
+
+[Service]
+Type=simple
+User=wowuisync
+Group=wowuisync
+EnvironmentFile=/etc/wow-ui-sync.env
+ExecStart=/opt/wow-ui-sync/server/start.sh --foreground --data ${WUS_DATA}
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/wow-ui-sync
+
+[Install]
+WantedBy=multi-user.target

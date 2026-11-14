@@ -39,6 +39,10 @@ public final class ServerApp {
 
     /** Runs until stopped. Returns the process exit code. */
     public int run() throws Exception {
+        try(var lock=io.github.azotorp.wowuisync.server.maintenance.DataLock.acquire(layout.root())) { return runLocked(); }
+    }
+    private int runLocked() throws Exception {
+        io.github.azotorp.wowuisync.server.maintenance.RepositoryMaintenance.requireSupported(layout);
         Files.createDirectories(layout.logs());
         ServerConfig cfg = ConfigIO.loadSettings(layout);
         Logs.init(layout.logs(), cfg.logLevel);
@@ -59,6 +63,7 @@ public final class ServerApp {
         String fingerprint = TlsKeys.fingerprint(ks);
 
         try (ServerDb db = ServerDb.open(layout.db(), layout.dbBackups())) {
+            io.github.azotorp.wowuisync.server.maintenance.RepositoryMaintenance.markFormat(layout);
             Permissions.lockDown(layout);
             if (db.root().isEmpty()) {
                 Logs.LOG.severe("No root account. Run install.");
@@ -66,6 +71,7 @@ public final class ServerApp {
             }
             ServerContext ctx = new ServerContext(layout, cfg, db, TlsKeys.serverContext(ks), fingerprint);
             Storage storage = new Storage(layout);
+            storage.warmStatusMetadata();
             LoginGuard guard = new LoginGuard(ctx);
             AccountService accounts = new AccountService(ctx, storage);
             ConnectionHandler.Services services = new ConnectionHandler.Services(new AuthService(ctx, guard), accounts,

@@ -18,7 +18,7 @@ public record StatusView(String badge, Color color, String line, boolean details
     }
 
     public static StatusView notConnected(ClientApp app) {
-        return message("Not connected", Theme.GRAY, "Connect to a server to see the sync status. Backups and Addons work offline.");
+        return message("Not connected", Theme.GRAY, "Browse local addons and legacy backups offline. Connect for snapshots and changes.");
     }
 
     public static String when(long epochMillis) {

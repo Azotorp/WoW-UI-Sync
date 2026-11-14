@@ -30,7 +30,7 @@ public final class PackReader {
         PackKind kind = PackKind.byId(in.readUnsignedByte());
         Codec codec = Codec.byId(in.readUnsignedByte());
         int count = in.readInt();
-        if (count < 0 || count > 1_000_000) throw new IOException("Bad pack count");
+        if (count < 0 || count > 100_000) throw new IOException("Bad pack count");
         String[] hashes = new String[count];
         long[] sizes = new long[count];
         long total = 0;
@@ -39,9 +39,9 @@ public final class PackReader {
             in.readFully(h);
             hashes[i] = Hashing.hex(h);
             sizes[i] = in.readLong();
-            if (sizes[i] < 0 || sizes[i] > Integer.MAX_VALUE) throw new IOException("Bad entry size");
+            if (sizes[i] < 0 || sizes[i] > (8L << 20)) throw new IOException("Bad entry size");
             total += sizes[i];
-            if (total > (256L << 20)) throw new IOException("Pack too large");
+            if (total > (16L << 20)) throw new IOException("Pack too large");
         }
         InputStream body = codec.wrapIn(in);
         List<PackEntry> entries = new ArrayList<>(count);
@@ -53,6 +53,7 @@ public final class PackReader {
             }
             entries.add(new PackEntry(hashes[i], b));
         }
+        if (body.read() != -1) throw new IOException("Unexpected extra pack content");
         return new Pack(kind, codec, entries);
     }
 }
