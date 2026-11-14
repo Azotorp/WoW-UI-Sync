@@ -1,104 +1,55 @@
-# WoW UI Sync 1.1.1-alpha engineering report
+# 1.1.2-alpha client scanning report
 
-## Source audit and provenance
+Baseline: latest `main`, `19bd4185a49dec9af3afb77beb32a880d25d69a5` (PR #2). Development branch: `perf/client-scan-1.1.2`. No merge or deployment. The previous report is retained in `docs/ENGINEERING-1.1.1.md`. Read AGENTS, current reports, release status, format/design and README before changes.
 
-Dedicated branch: `perf/persistent-scan-jar-upgrades`, based on `main`. Nothing was merged or deployed to production.
+## Findings and implementation
 
-| Reference | Exact identity |
-| --- | --- |
-| GitHub main | `e7de36d252888beb16ded2d8d7c1247406c0d1b5` (PR #1 merge) |
-| Other remote branch | `ccr-bc9e9633-4tnnd4`, `2c9b5163031130fd3ba146b4c662df05dfc9b926` |
-| Historical v1 benchmark | `2c9b5163031130fd3ba146b4c662df05dfc9b926`; code reports 1.0.0-SNAPSHOT |
-| Recovered implementation commit | `4b41eb7069b50a04aaa33cbcf5b530a753453f30` |
-| Recovered source/build ZIP SHA-256 | `e31fab5002c6ac9a28f2f442061aa8d68a8d459215e8400ae76089e4724eabde` |
-| Later scanfix1 ZIP SHA-256 | `0c0dfd870a2bc8243035e306ddc95ff73e5795a052a2f3ff0b5839138a1b0484` |
+The supplied Windows figures (1,450/35,962 files, 16.1 s, 21.8 MiB, no hits) establish slow first-fill work, not its cause. Source inspection confirmed that `Scanner.hashFile` wrote/verified staging during ordinary checks and saved cache rows only after the whole scan. A TSM external-app write could therefore abort a long scan and lose all completed cache work. No native Windows timing attribution is claimed.
 
-The two remote branches have identical application code; the later branch adds README/.gitignore changes. No tags or GitHub releases existed during audit. History includes the original scanner/cache (`a3ce2c9`), transfer implementation (`e84290d`) and release workflow (`cec2117`). There is no final 1.0.0 tag, so the historical source above is the available comparison.
+- Probe the authoritative selected account/flavor head before automatic discovery. Only a null fingerprint means absent; a zero-file snapshot has a non-null fingerprint. Error/auth failures propagate. History/recovery remain independent. Pending journals are checked before the probe. Explicit operations re-probe; Push rechecks after scanning and retains expected-head checks at begin and commit.
+- All scans now produce hashes and ordered references without staging. Small files reuse the whole-file digest as their sole chunk digest. Staging is generated/verified only for requested upload objects; existing immutable stage reuse and server full-file/hash/length verification remain.
+- Verified hints are upserted every 128 changed rows, by one coordinated writer with bounded transactions. Cancellation/failure flushes remaining stable results, including completed workers. Normal window-close drains active scans and flushes SQLite before exiting. Force-kill/power loss can lose the small current batch. Partial hints cannot publish a manifest, infer filesystem deletions, update baselines or authorize apply. Successful scans prune obsolete advisory rows only after validation.
+- Preserve the existing Windows null-fileKey creation-time hint and cache schema. Avoid probing unsupported Unix ctime once per file on Windows. Keep unreadable/unsafe/link/junction/collision failures closed, including top-level addon discovery. Ancestor aliases such as macOS `/var` remain supported. Directory validation is not cached across scans or trusted for later content opens.
+- Hash reads obtain fresh metadata immediately before content and verify it afterward; the returned stamp is the verified cache stamp. This eliminates duplicate outer before/after reads without discarding an integrity check. Discovery attributes are still used for advisory comparisons. A source changed after discovery is no longer automatically an error. Mid-read changes get one bounded retry; repeated changes block completion and mention external updaters such as TSM.
+- Optional platform-thread hashing has a worker-sized outstanding window, bounded executor queue, independent 64 MiB content-buffer semaphore, private digests and deterministic coordinator assembly. Large files stream through CDC and reserve 17 MiB, independent of source length. SQLite/progress remain coordinated. Cancellation interrupts/drains all tasks and rechecks before returning success. Operation checkpoints support pause/resume. Sequential mode hashes inline without thread hops.
+- Discovery and scan reports are throttled to about 10 Hz; Swing changes stay on the EDT. Modes and source-byte counters distinguish first fill, cached check and strict verification. Bytes include retries. Logs separate cache load, metadata, hash work, manifest and persistence, plus six miss reasons. Staging/transfer/server verification have explicit phases. Worker hash times are summed work, not disjoint wall-clock phases.
 
-The 1.1 implementation was absent from every remote branch. Recovered `WoW-UI-Sync-1.1.0-alpha-Recovered-Source-and-Build.zip` and later `WoW-UI-Sync-Client-1.1.0-alpha-scanfix1.zip` from the prior deliverables. Their only source differences are Scanner, ProgressPanel and SyncController. The later complete source is the baseline, preserved in its own recovery commit. Its original upstream commit identity is unavailable. The recovered AGENTS.md, release status, repository-format and 1.1 design/upgrade documents were read before implementation.
+## Integrity audit
 
-## Confirmed root causes
+Strict review plus strict precommit Push checks remain: review authorizes the content presented; a later content scan detects changes during staging/transfer, including deduplicated files not requested by the server. The server still verifies every referenced object and whole file and rejects changed heads. Pull/restore retain strict review, fresh pre-recovery scan, committed server recovery, immutable staging/reconstruction, strict pre-apply recheck, durable replay journal and strict post-apply verification. These scans guard different mutation windows and were not replaced with metadata hints. Removing staging from each repeated scan removes redundant disk work while retaining those content checks. Recovery/journal semantics and no persistent local folder-backup policy are unchanged.
 
-1. The 1.1 scanner bypassed the v1 persistent hash cache. Each status check read all content, performed CDC and verified/staged every chunk. Existing staging checks read chunks again. Discovery-only scanfix1 did not restore caching.
-2. `SyncService.status` called `logicalBytes` twice, walking retained snapshot manifests each time. Account listing/login did this per account too. Current status manifests were reparsed for every request.
-3. Discovery had no measurable total while the UI displayed a generic checking message. Scanfix1 improved discovery reporting but did not explain cache/hashing work or cancel an outstanding server call.
-4. `RepositoryMaintenance.requireSupported` demanded an offline migrate command, while release activation tooling changed release pointers. This prevented normal JAR-only startup upgrades.
+## Measured evidence
 
-## Components changed
+Linux, Java 21.0.13, overlay filesystem, `-Xmx512m`. Identical seeded fixture, independent caches: 35,996 mixed 128–24,703-byte addon files plus 4/8/12/32 MiB WTF files; **36,000 files, 505,037,951 source bytes**. Fixture copies and normal prior activity warm OS caches; no physical cold-cache or native desktop claim. Single runs show variability, not a statistically established ranking. Raw results and phase counters are in `docs/benchmarks/1.1.2/`; timings below are scanner-call wall milliseconds (before staging inventory). Source-launch compilation is outside the scanner-call timer.
 
-| Component | Change |
-| --- | --- |
-| Scanner / ScanCache / ClientDb | Persistent precise metadata and chunk manifests, compact checksummed rows, recent-write distrust, Unix ctime, Windows creation-time fallback, four-root decoded cache, external DB invalidation, delta transactions |
-| SyncOps | Verify/regenerate requested missing staging only; retain strict push review/commit, manual snapshot and destructive/recovery scans, source-change checks and server content verification |
-| SyncController / TransferControl / ServerConnection | Honest indeterminate discovery, measured counts, cache/hash/byte/elapsed and phase timings, throttled UI updates, cancellation including closing an outstanding status connection; connect/auth/status timing logs |
-| Storage / SyncService / AccountService / ServerApp | Warm display summaries before listening, cache current manifest by authoritative head, refresh summaries on commit/deletion; no history/object scan during routine status/account display |
-| RepositoryMaintenance / ServerDb / ClientDb | Automatic startup migration under existing exclusive lock, schema recognition, WAL-consistent verified checkpoints, transactional SQL rollback, newer-format refusal, failed-open connection cleanup |
-| Readiness / ServerMain / update.sh | Pinned TLS/protocol/version readiness; optional same-service atomic JAR replacement, preserved owner/mode, previous binary and no unsafe automatic rollback |
-| Build / tests / tools / docs | 1.1.1-alpha artifacts, root package documentation, CI updater check, regression tests, reproducible benchmarks and real-process upgrade rehearsal |
+| Scenario | main | optimized 1 worker | 2 workers | 4 workers |
+| --- | ---: | ---: | ---: | ---: |
+| First fill | 8013 | 4760 | 4779 | 5069 |
+| Unchanged before any push | 415 | 388 | 479 | 545 |
+| One changed file | 460 | 551 | 456 | 432 |
+| Addition | 441 | 422 | 561 | 556 |
+| Deletion | 392 | 432 | 337 | 536 |
+| Rename | 423 | 395 | 358 | 388 |
+| Separate fresh JVM | 1226 | — | 1375 | — |
 
-## Benchmarks
+The default is **one worker**: after eliminating sequential thread hops, the final fixture shows no consistent parallel advantage. Earlier exploratory runs favored parallelism; that was not stable across runs and environments. Two/four remain explicit opt-ins; HDD/network/native Windows performance must be measured locally. The optimized first fill is about 41% faster in the recorded final sequential run. Some metadata/restart scenarios regress; no blanket speedup is promised.
 
-Linux, Java 21.0.13, local scratch filesystem. Fixture: 10,000 seeded 8 KiB addon files plus one seeded 12 MiB WTF file, **94,502,912 source bytes**. Versions ran sequentially with separate fixture roots and identical bytes. No network was used by scanner measurements. Wall time excludes fixture generation/source-launch compilation and includes scanner work. One run per version is evidence for this fixture, not a statistical Windows/slow-disk claim.
+First fill reads exactly 505,037,951 source bytes in both versions. Main creates **36,040 staging files / 505,037,951 staged bytes**; all optimized scan scenarios create **zero**. Before-push repeat and fresh-process checks have 36,000 hits, zero files hashed and zero source bytes read. Fingerprints and an additional digest of **every manifest entry including ordered chunk references** match all four variants in every change scenario. Regression tests separately compare large-file chunk references across worker counts.
 
-| Scenario | v1 historical ms | 1.1 scanfix1 ms | 1.1.1 ms |
-| --- | ---: | ---: | ---: |
-| first | 1170.380 | 1600.414 | 2233.844 |
-| unchanged | 201.891 | 1186.583 | 196.045 |
-| restart | 155.016 | 1109.294 | 409.207 |
-| one-changed | 172.977 | 1140.137 | 245.663 |
-| one-deleted | 173.174 | 1175.038 | 202.375 |
-| new-addon | 170.158 | 1189.168 | 216.202 |
-| no-change | 193.110 | 1217.215 | 214.728 |
+Main first-fill phase counters: discovery 287 ms, cache load 4 ms, metadata 100 ms, hash/path/staging work 4737 ms, manifest 93 ms, persistence 499 ms, total scan 7980 ms. Optimized sequential: 338 / 4 / 111 / 3450 / 73 / 529 ms, total 4744 ms. Remaining unassigned wall time includes coordinator/path/bookkeeping, allocation and scheduling; hash timers include filesystem/path checks. These are not a claim to have isolated every syscall cost.
 
-The first unchanged scan is **6.1× faster than scanfix1** (1186.583 → 196.045 ms), comparable to v1's 201.891 ms. Cache reload after DB reopen is slower than v1 (409.207 vs 155.016 ms), and first cache fill is slower (2233.844 vs 1170.380 ms). The later no-change row is 214.728 vs v1's 193.110 ms. The blanket goal “faster than v1 in every scenario” is **not met**; the stronger metadata checks and persistent chunk manifests carry overhead.
+A separate diagnostic JFR run confirms 505,037,951 staging bytes written on main and zero on the candidate. Java staging-write event durations total about 1998 ms; source-read durations about 629 ms (main) / 280 ms (candidate). Those instrumented runs are excluded from timing comparisons. CPU samples include path validation, chunking, hashing, cache and runtime work. JFR Java file events do **not** capture SQLite native I/O or all filesystem metadata syscalls; CPU samples are not wall-time attribution. Headless scanner benchmarks exclude Swing overhead and network latency. `/proc` rchar/wchar include runtime/database I/O and are not physical-device counters.
 
-The first unchanged scan reports **10,001 hits, zero files/bytes hashed**. Read-character counters fall from **189,006,052 to 228** bytes; fixed write-character counters are 338 bytes of diagnostic output, while v1 rewrites its hash cache and wrote 6,794,064 bytes. `/proc/self/io` counters include database/staging/runtime I/O, are not physical-device reads or syscall counts, and exclude metadata traversal. Reopened scans read cache metadata, not unchanged WoW content.
+Sampled process RSS (50 ms sampling, includes JVM/source-launch/compiler/cache/GC) is about 379 MiB main and 428/424/444 MiB for 1/2/4 workers. This is not a live-heap measure. The separate 64 MiB limit covers content buffers only. Path checks, SQLite decoding after restart, JVM allocation and metadata enumeration remain bottlenecks; per-read full path validation deliberately remains because caching it across mutation windows could weaken link protection.
 
-One changed file hashes seven bytes. Immediate subsequent checks may rehash it and the three-byte new file because timestamps younger than two seconds remain untrusted. After they age, a **separate fresh JVM** reports 10,001 hits and zero files/bytes hashed (386.450 ms recorded scanner elapsed). Fingerprints match all three versions in every workload scenario. The benchmark's `restart` row closes/reopens the DB within one JVM; the separate probe verifies actual process restart. Raw evidence is in `docs/benchmarks/`.
+## Validation and delivery
 
-A GUI status operation sends one StatusReq after scanning; count and latency are logged separately. Scanner workloads have no network requests. Filesystem syscall counts, native Windows antivirus effects, slow-disk performance and WAN timings were not measured.
+Local suite: 52 tests, 51 passed, one optional external-key fixture skipped, zero failures/errors in the completed runs. Added partial-cache cancellation/restart safety, separate-process normal-close flushing, fresh discovery metadata/TSM-style write, mid-read mutation, deterministic parallel references, cancellation/worker cleanup, miss reasons, absent/zero-file heads, retained recovery without a head, error propagation, pending journals, stale empty-head begin races and mutation before commit. Existing migration/security/quota/flavor/TLS/recovery/sync tests remain.
 
-Reproduce with a new fixture path for each baseline, running versions sequentially:
+The full integration flow also passed against an actual **main 1.1.1-alpha server JAR in a separate JVM** (`-Dwowuisync.integrationServerJar=/absolute/main-server.jar`), including push/pull/restore/recovery/head races. Protocol/repository/server schema/client schema remain 2. No installed server replacement is necessary for the client-only package. Server runtime behavior is unchanged; release packaging adds the client-only ZIP.
 
-```bash
-java -cp dist/wow-ui-sync-client.jar tools/ScanBenchmark.java /tmp/new-fixture 10000
-java -cp dist/wow-ui-sync-client.jar tools/ScanProbe.java /tmp/new-fixture
-```
+Required compile/package checks, updater tests and native GitHub Linux/Windows/macOS matrix are recorded in the completion addendum after execution. The local runtime lacks javac launcher/ct.sym; an external launcher delegates to the installed compiler module, and Maven source/target 21 overrides --release only for this environment. Repository/CI defaults remain a full JDK 21 with --release 21.
 
-## Verification
+Reproduce with `tools/ScanWorkload.java` against the baseline and candidate JARs, a fresh fixture per cache and `-Dwowuisync.scanWorkers=1|2|4`. `tools/measure_scan.py` samples Linux process RSS. `tools/ProfileScan.java` records optional diagnostic JFR. Keep benchmark runs separate from tests/builds and repeat on native storage before choosing workers.
 
-- Maven: **44 tests, 43 passed, one optional external private-key fixture skipped**, zero failures/errors. Both shaded JARs compile. Three isolated Python updater tests pass.
-- Existing integration/security tests exercise TLS login, incremental push/pull, snapshot/history restore, recovery snapshots, cross-flavor/object authorization, upload forgery/quota/frame limits and journal replay/local-change refusal.
-- New tests cover cache restart/change/deletion/rename/new files, restored mtime plus ctime, recent files, corrupt cache, missing/corrupt staging, cancellation, unsafe names/links/case collisions, migration/pin preservation, Windows null-file-key fallback, Swing progress, automatic server migration, newer/unrecognized schemas, failed SQL migration rollback, committed WAL backup and history-free routine status.
-- Real old/new JVM rehearsal at the same installed `existing-custom-name.jar` path and identical startup arguments passed: old root login, automatic migration, unchanged account ID/credentials/config/TLS bytes, verified stored legacy content and migration snapshot, restart without repeat migration. This models JAR/process compatibility, not a live installed systemd service.
-- Optional updater contract tests use isolated fake systemctl/java commands. Actual pinned TLS readiness is tested by server integration and the real-process rehearsal. Invalid artifacts leave the service running; failed readiness leaves it stopped without automatic database/binary rollback.
-- `./compile.sh` and `./package.sh` run the full Maven reactor. This environment has a Java 21 compiler module but no javac launcher/ct.sym. An external temporary launcher delegates to that module, and Maven uses source/target 21 instead of --release. Repository full-JDK defaults remain --release 21. This workaround does not add runtime dependencies.
-- Packaging validates 29 flat members, both real shaded JAR entrypoints/version manifests, checksums and executable shell modes. Generated JARs, private keys and account databases are excluded from source commits.
-
-## Migration and deployment
-
-Protocol and repository remain **2**, server SQLite remains **2**, client cache schema becomes **2**. Existing 1.1 servers normally need no schema conversion. V1 hashes cannot supply CDC manifests, so the first new-client cache fill is necessary.
-
-Startup migrates recognized legacy data while holding the existing data-directory lock and before opening the listener. Pre-migration checkpoints contain SQLite committed WAL via VACUUM INTO, configuration, keys/TLS, and manifest/snapshot/head metadata with SHA-256 checksums. SQL changes are transactional. Filesystem conversion reuses legacy objects without deleting them, creates migration-baseline snapshots, and resumes safely; migration failure prevents serving and retains checkpoints/diagnostics. Unsupported schemas/repository formats are refused before conversion.
-
-**Deploy:** stop the actual existing unit → retain/replace its actual installed JAR with preserved ownership/mode → start the same unit. Keep its data path, configuration and startup arguments. Do not run setup again. The current README includes commands and the optional updater. `ready --data <existing path>` checks local pinned TLS, protocol and running application version; process startup alone is insufficient. Initial migration and metadata warmup can delay readiness.
-
-Upgrade protocol-1 servers before using the protocol-2 client. Client updates replace only their JAR beside the existing data folder, preserving settings/pins/device/keys/baselines. Cancelling a blocked status call closes the connection and requires reconnecting.
-
-On failed migration, stop the service, preserve data/checkpoints/logs, inspect checksums and restore matching metadata offline with its matching binary. Never automatically downgrade a database. The historical release `rollback` command requires an activation record from the optional ZIP updater; manual JAR upgrades require explicit offline checkpoint restore. No production migration was attempted.
-
-## Remaining limitations
-
-The performance regression is measurably reduced, unchanged content is not rehashed by routine checks, and snapshot/integrity/fixture upgrade behavior is verified. **First fill/reopen and some later metadata-heavy scans remain slower than v1.** No Windows speed claim is made.
-
-Native Windows/macOS filesystem and GUI behavior, Windows junction/antivirus impact, slow/network drives, actual installed systemd operation, real WAN interruptions and every power-loss point remain untested. OpenJDK's Windows provider returns null for fileKey (checked against [OpenJDK 21 source](https://github.com/openjdk/jdk/blob/jdk-21-ga/src/java.base/windows/classes/sun/nio/fs/WindowsFileAttributes.java)); tests simulate its creation-time fallback rather than the OS. Metadata-preserving Windows edits can evade an advisory check. Strict push/destructive verification still reads/hashes content and detects differences, so those operations can remain slower than routine status.
-
-Server display warmup enumerates retained metadata once before listening. At-rest packs, background scrubbing, pooling and automatic network updates remain deferred. Production service paths/names were unavailable; examples deliberately use operator-selected existing values. The optional JAR updater requires Python 3 and the real existing unit/data paths; wrapper units need the actual JAR path. Remote CI results are separate from local verification.
-
-## Completion validation — November 13, 2026
-
-Recovered PR #2 source tree matched local tree `ea53b1451402791eff83aaa89b7e1155927d8c7a`. Its first GitHub matrix run passed Linux but exposed two portability defects: Windows retained the server log FileHandler after shutdown, preventing temporary-directory cleanup; macOS rejected normal paths beneath its `/var` ancestor alias.
-
-Server shutdown now closes the owned rotating FileHandler, including startup-failure exits. Path validation resolves ancestor aliases component by component while continuing to reject links/junctions at or beneath the selected installation root. Added ancestor-alias path-resolution and full-scanner regressions and a server-stop log-release assertion. Windows also exposed unclosed client databases in the integration fixture; its teardown now closes both client connections/databases.
-
-Completion build: `compile.sh` and `package.sh` succeeded locally using the documented compiler workaround. Final Maven suite: 46 tests, 45 passed, one optional external-key fixture skipped, zero failures/errors. Three isolated updater tests passed. The final deployment ZIP is rebuilt from these corrected sources and validates its JAR versions, checksums, membership and executable permissions. Native GitHub Windows/macOS reruns are tracked separately; these results do not certify a production deployment.
+Delivery contains a versioned deployment ZIP, client-only ZIP and SHA-256 sidecars. Close client, replace its existing JAR, reopen beside its existing data directory. Preserve settings, pins, credentials, installation IDs and cache. Server JAR-only upgrades, if separately chosen by the operator, retain the existing unit/data paths and need no setup. Nothing was merged or deployed. Native CI proves correctness/packaging, not desktop speed, antivirus behavior, HDD/network-drive throughput or every power-loss race.

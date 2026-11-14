@@ -48,6 +48,9 @@ public final class TransferEngine {
 
     /** UI hooks. */
     public interface Sink {
+        default void phase(String phase) {}
+        default void scanCount(int done,int total) {}
+        default void scanStatistics(Scanner.Statistics stats) {}
         void stats(TransferStats s);
 
         void connectionLost(String message);

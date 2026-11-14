@@ -93,7 +93,12 @@ class SyncIntegrationTest {
         }
         Thread st = new Thread(() -> {
             try {
-                new ServerApp(l).run();
+                String external=System.getProperty("wowuisync.integrationServerJar");
+                if(external==null)new ServerApp(l).run();
+                else {
+                    Process server=new ProcessBuilder("java","-jar",external,"run","--data",sd.toString()).redirectErrorStream(true).redirectOutput(dir.resolve("external-server.log").toFile()).start();
+                    assertEquals(0,server.waitFor(),"External server exit");
+                }
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -123,10 +128,28 @@ class SyncIntegrationTest {
             pc1.setConnection(c1, rec);
             Msg.AccountInfo root = pc1.targetAccount();
             SyncOps ops1 = new SyncOps(pc1);
+            var failIfScanning=new Scanner.Progress(){public void update(int d,int t){fail("Empty head must not scan local files");}};
+            assertNull(ops1.automaticStatus(c1,root,fl1,failIfScanning,()->false));
+            assertTrue(pc1.db().scanCache(f1.toAbsolutePath().toString()).isEmpty());
+            assertFalse(Files.exists(pc1.paths().stagedObjects()));
+            // Pending recovery must remain visible even with no server head.
+            Path journal=ApplyJournal.journal(pc1.paths().root(),f1);Files.createDirectories(journal.getParent());Files.writeString(journal,"pending");
+            assertThrows(Exception.class,()->ops1.automaticStatus(c1,root,fl1,failIfScanning,()->false));Files.delete(journal);
             LocalScan s1 = ops1.scan(fl1, null, () -> false);
             assertEquals(SyncStatus.Kind.SERVER_EMPTY, ops1.status(c1, root, fl1, s1).kind());
             Msg.PushNeed need = ops1.pushBegin(c1, root, fl1, s1, null);
             assertEquals(s1.manifest().size(), need.newFiles().size());
+            var cancelledNeed=need;
+            var mutateBeforeCommit=new TransferEngine.Sink(){
+                public void stats(TransferStats stats){}
+                public void connectionLost(String message){fail(message);}
+                public void phase(String phase){if(phase.contains("strict source recheck"))try{Files.writeString(f1.resolve("Interface/AddOns/Details/Details.toc"),"external updater changed reviewed content");}catch(Exception e){throw new RuntimeException(e);}}
+            };
+            assertThrows(Exception.class,()->ops1.pushUpload(c1,root,fl1,s1,cancelledNeed,new TransferControl(),mutateBeforeCommit));
+            assertNull(ops1.serverHead(c1,root,fl1).currentFingerprint());
+            ops1.pushCancel(c1,cancelledNeed);
+            Files.writeString(f1.resolve("Interface/AddOns/Details/Details.toc"),"## Title: Details\n");
+            need=ops1.pushBegin(c1,root,fl1,s1,null);
             ops1.pushUpload(c1, root, fl1, s1, need, new TransferControl(), SINK);
             assertEquals(SyncStatus.Kind.UP_TO_DATE, ops1.status(c1, root, fl1, ops1.scan(fl1, null, () -> false)).kind());
 
@@ -201,6 +224,20 @@ class SyncIntegrationTest {
             var retailScan=ops1.scan(retailFlavor,null,()->false);var retailNeed=ops1.pushBegin(c1,root,retailFlavor,retailScan,null);
             ops1.pushUpload(c1,root,retailFlavor,retailScan,retailNeed,new TransferControl(),SINK);
             assertNotEquals(ops1.status(c1,root,fl1,ops1.scan(fl1,null,()->false)).server().currentFingerprint(),ops1.status(c1,root,retailFlavor,retailScan).server().currentFingerprint());
+            // Recovery history exists without a shared head. An actual empty snapshot is distinct.
+            Path era=dir.resolve("pc1-wow/_classic_era_");Files.createDirectories(era);
+            Flavor eraFlavor=new Flavor("_classic_era_",era,"classic_era",true);
+            var empty=ops1.scan(eraFlavor,null,()->false);
+            var saved=ops1.recoverySnapshot(c1,eraFlavor,empty,new TransferControl(),SINK,"manual");
+            assertNull(ops1.automaticStatus(c1,root,eraFlavor,failIfScanning,()->false));
+            assertNotNull(c1.call(new Msg.SnapshotGet(root.id(),"classic_era",saved.snapshotId()),Msg.ManifestResp.class));
+            // The server changes after an absent-head probe: the old expected head cannot overwrite it.
+            var firstEmpty=ops1.pushBegin(c1,root,eraFlavor,empty,null);
+            ops1.pushUpload(c1,root,eraFlavor,empty,firstEmpty,new TransferControl(),SINK);
+            assertNotNull(ops1.automaticStatus(c1,root,eraFlavor,null,()->false));
+            assertThrows(io.github.azotorp.wowuisync.common.protocol.ProtocolException.class,()->ops1.pushBegin(c1,root,eraFlavor,empty,null));
+            c1.close();
+            assertThrows(Exception.class,()->ops1.automaticStatus(c1,root,eraFlavor,failIfScanning,()->false));
             assertNotNull(login);
             c1.close();
             c2.close();

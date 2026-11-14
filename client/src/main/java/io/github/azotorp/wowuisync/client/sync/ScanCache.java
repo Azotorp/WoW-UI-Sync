@@ -18,7 +18,7 @@ public final class ScanCache {
     public record Entry(Stamp stamp, ManifestEntry manifest) {}
     public static Stamp stamp(Path p, BasicFileAttributes a) throws IOException {
         Long changed = null;
-        try { changed = ((java.nio.file.attribute.FileTime) Files.getAttribute(p,"unix:ctime",LinkOption.NOFOLLOW_LINKS)).to(java.util.concurrent.TimeUnit.NANOSECONDS); }
+        try { if(p.getFileSystem().supportedFileAttributeViews().contains("unix")) changed = ((java.nio.file.attribute.FileTime) Files.getAttribute(p,"unix:ctime",LinkOption.NOFOLLOW_LINKS)).to(java.util.concurrent.TimeUnit.NANOSECONDS); }
         catch (UnsupportedOperationException | IllegalArgumentException ignored) { /* Windows: use identity and precise times. */ }
         return new Stamp(a.size(), a.lastModifiedTime().to(java.util.concurrent.TimeUnit.NANOSECONDS), a.creationTime().to(java.util.concurrent.TimeUnit.NANOSECONDS),
                 identity(a,WINDOWS),changed);

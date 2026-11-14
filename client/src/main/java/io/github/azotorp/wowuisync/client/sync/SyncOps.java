@@ -53,6 +53,33 @@ public final class SyncOps {
         return bases;
     }
 
+    private static Scanner.Progress scanProgress(TransferEngine.Sink sink) {
+        if(sink==null)return null;
+        return new Scanner.Progress(){
+            public void update(int done,int total){sink.scanCount(done,total);}
+            public void phase(String phase){sink.phase(phase);}
+            public void statistics(Scanner.Statistics stats){sink.scanStatistics(stats);}
+        };
+    }
+    public void requireNoPendingJournal(Flavor f) throws UserException {
+        if(Files.exists(ApplyJournal.journal(app.paths().root(),f.path())))throw new UserException("An interrupted apply needs recovery. Open Recovery before syncing.");
+    }
+    /** Authoritative head probe; null fingerprint alone means no head, never zero file count. */
+    public Msg.StatusResp serverHead(ServerConnection c,Msg.AccountInfo account,Flavor f) throws Exception {
+        requireNoPendingJournal(f);
+        return c.call(new Msg.StatusReq(account.id(),f.profileId(),null,null),Msg.StatusResp.class);
+    }
+    /** Returns null only for an absent head. Network/auth errors propagate; history is independent. */
+    public SyncStatus automaticStatus(ServerConnection c,Msg.AccountInfo account,Flavor f,Scanner.Progress progress,
+            BooleanSupplier cancelled) throws Exception {
+        if(cancelled.getAsBoolean())throw new CancelledException();
+        Msg.StatusResp head=serverHead(c,account,f);
+        if(cancelled.getAsBoolean())throw new CancelledException();
+        if(head.currentFingerprint()==null)return null;
+        LocalScan scan=statusScan(f,progress,cancelled);
+        if(cancelled.getAsBoolean())throw new CancelledException();
+        return status(c,account,f,scan); // recheck: another client can push during the scan
+    }
     public LocalScan scan(Flavor f, Scanner.Progress progress, BooleanSupplier cancelled) throws Exception {
         if(Files.exists(ApplyJournal.journal(app.paths().root(),f.path()))) throw new UserException("An interrupted apply needs recovery. Open Recovery before syncing.");
         return Scanner.verified(f.path(), app.config().exclusions(f.profileId()), app.db(), progress, cancelled);
@@ -128,6 +155,7 @@ public final class SyncOps {
     private Msg.PushDone upload(ServerConnection c,Msg.AccountInfo account,Flavor f,LocalScan scan,Msg.PushNeed need,
             TransferControl control,TransferEngine.Sink sink,boolean updateBase) throws Exception {
         control.checkpoint();
+        if(sink!=null)sink.phase("Upload staging · generating and verifying requested objects");
         Scanner.ensureStaged(scan,new HashSet<>(need.missingHashes()),app.paths().stagedObjects(),control::cancelled);
         Map<String,TransferEngine.UploadItem> byHash=new HashMap<>();
         for(ManifestEntry e:scan.manifest().entries()) for(var ref:e.objects())
@@ -144,6 +172,7 @@ public final class SyncOps {
             // cache is optional
         }
         TransferStats stats = new TransferStats(items.size(), total);
+        if(sink!=null)sink.phase("Transfer · uploading verified objects");
         new TransferEngine(c, app.config().dataConnections, control, sink, stats).upload(need.pushId(), items, need.partialOffsets(), policy);
         try {
             app.db().saveSampleCache(policy.cacheView());
@@ -151,9 +180,12 @@ public final class SyncOps {
             // optional
         }
         if(updateBase) {
-            LocalScan current=Scanner.verified(f.path(),app.config().exclusions(f.profileId()),app.db(),null,control::cancelled);
+            if(sink!=null)sink.phase("Verification · strict source recheck before commit");
+            LocalScan current=Scanner.verified(f.path(),app.config().exclusions(f.profileId()),app.db(),scanProgress(sink),()->{try{control.checkpoint();return false;}catch(CancelledException e){return true;}});
             if(!current.manifest().fingerprint().equals(scan.manifest().fingerprint()))throw new UserException("Local files changed during upload. Review and push again.");
         }
+        control.checkpoint();
+        if(sink!=null)sink.phase("Verification · server full-file/hash/length checks and commit");
         Msg.PushDone done = c.call(new Msg.PushCommit(need.pushId()), Msg.PushDone.class);
         if (updateBase && done.fingerprint().equals(scan.manifest().fingerprint())) {
             bases.set(c.hostPort(), account.id(), localProfile(f), scan.manifest());
@@ -228,7 +260,7 @@ public final class SyncOps {
         if(app.paths().root().toAbsolutePath().normalize().startsWith(f.path().toAbsolutePath().normalize()))throw new UserException("Client staging must be outside the WoW installation");
         Path journal=ApplyJournal.journal(app.paths().root(),f.path());
         if(Files.exists(journal)) throw new UserException("Recover the interrupted operation first");
-        LocalScan fresh=Scanner.verified(f.path(),app.config().exclusions(f.profileId()),app.db(),null,control::cancelled);
+        LocalScan fresh=Scanner.verified(f.path(),app.config().exclusions(f.profileId()),app.db(),scanProgress(sink),()->{try{control.checkpoint();return false;}catch(CancelledException e){return true;}});
         if(!fresh.manifest().fingerprint().equals(scan.manifest().fingerprint())) throw new UserException("Local files changed since review. Review again.");
         List<ManifestEntry> writes=new ArrayList<>(plan.newFiles());writes.addAll(plan.editedFiles());
         List<ManifestEntry> removed=new ArrayList<>();
@@ -248,13 +280,13 @@ public final class SyncOps {
         for(var e:needed.entrySet()) items.add(new TransferEngine.DownloadItem(e.getKey(),e.getValue()));
         new TransferEngine(c,app.config().dataConnections,control,sink,new TransferStats(items.size(),stagingBytes)).download(source.id(),f.profileId(),items,app.paths().stagedObjects());
         ApplyJournal.reconstruct(app.paths().stagedObjects(),ApplyJournal.prepared(app.paths().root(),op),writes);
-        LocalScan recheck=Scanner.verified(f.path(),app.config().exclusions(f.profileId()),app.db(),null,control::cancelled);
+        LocalScan recheck=Scanner.verified(f.path(),app.config().exclusions(f.profileId()),app.db(),scanProgress(sink),()->{try{control.checkpoint();return false;}catch(CancelledException e){return true;}});
         if(!recheck.manifest().fingerprint().equals(scan.manifest().fingerprint())) throw new UserException("Local files changed during download. Review again.");
         control.checkpoint();
         if(io.github.azotorp.wowuisync.client.wow.WowProcess.check(f.path()) == io.github.azotorp.wowuisync.client.wow.WowProcess.State.RUNNING) throw new UserException("Close WoW before applying files");
         ApplyJournal.write(journal,op);
         ApplyJournal.apply(app.paths().root(),journal);
-        LocalScan after=Scanner.verified(f.path(),app.config().exclusions(f.profileId()),app.db(),null,()->false);
+        LocalScan after=Scanner.verified(f.path(),app.config().exclusions(f.profileId()),app.db(),scanProgress(sink),()->false);
         if(!after.manifest().fingerprint().equals(target.fingerprint())) throw new UserException("Post-apply verification failed. Open Recovery.");
         bases.clearAll(localProfile(f));
         if(plan.selectsEverything() && target.fingerprint().equals(plan.sourceFingerprint())) bases.set(c.hostPort(),source.id(),localProfile(f),after.manifest());

@@ -78,8 +78,13 @@ public final class MainWindow extends JFrame {
             public void windowClosing(WindowEvent e) {
                 if (app.busy() && !Dialogs.confirmWarning(MainWindow.this, "A transfer is running. Quit anyway? It can be resumed later.")) return;
                 if (app.connection() != null) app.connection().close();
-                dispose();
-                System.exit(0);
+                setEnabled(false);
+                progress.phase("Closing · saving verified file cache");
+                Thread.ofPlatform().name("wus-close").start(()-> {
+                    io.github.azotorp.wowuisync.client.sync.Scanner.cancelAndAwait();
+                    try {app.db().close();}catch(Exception failure){io.github.azotorp.wowuisync.client.util.ClientLog.LOG.warning("Cache close: "+failure.getMessage());}
+                    System.exit(0);
+                });
             }
         });
 

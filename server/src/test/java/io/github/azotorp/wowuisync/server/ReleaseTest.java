@@ -40,4 +40,18 @@ class ReleaseTest {
   String[] options={"update","--data",dir.resolve("data").toString(),"--from",archive.toString(),"--check"};assertThrows(Exception.class,()->ReleaseManager.command(options));
   ReleaseManager.command(new String[]{"update","--data",dir.resolve("data").toString(),"--from",archive.toString(),"--check","--allow-unsigned-local","--sha256",Hashing.sha256Hex(archive)});assertFalse(Files.exists(dir.resolve("data")));
  }
+ @Test void clientOnlyPackageContainsVerifiedJarAndChecksumsAndCannotActivateServer()throws Exception {
+  Files.createDirectories(dir.resolve("dist"));Files.createDirectories(dir.resolve("docs"));
+  Files.write(dir.resolve("dist/wow-ui-sync-client.jar"),jar("io.github.azotorp.wowuisync.client.ClientMain"));
+  Files.writeString(dir.resolve("docs/CLIENT-1.1.md"),"Replace client JAR; retain data");Files.writeString(dir.resolve("LICENSE"),"GPL");
+  Path out=ReleaseManager.packClient(dir);
+  try(var zip=new ZipFile(out.toFile())) {
+   assertEquals(Set.of("client/wow-ui-sync.client.jar","client/README.txt","LICENSE","SHA256SUMS"),zip.stream().map(ZipEntry::getName).collect(java.util.stream.Collectors.toSet()));
+   String sums=new String(zip.getInputStream(zip.getEntry("SHA256SUMS")).readAllBytes());
+   for(String line:sums.split("\n")){String name=line.substring(66);try(var in=zip.getInputStream(zip.getEntry(name))){assertEquals(line.substring(0,64),Hashing.sha256Hex(in.readAllBytes()));}}
+  }
+  assertTrue(Files.readString(out.resolveSibling(out.getFileName()+".sha256")).startsWith(Hashing.sha256Hex(out)));
+  assertThrows(Exception.class,()->ReleaseManager.inspect(out));
+ }
+
 }

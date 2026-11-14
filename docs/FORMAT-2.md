@@ -25,3 +25,8 @@ Protocol and repository versions stay 2; server SQLite stays 2. Client SQLite sc
 Status/account display uses memory summaries warmed from retained metadata before listener startup and refreshed on commits/deletions. Current status manifests are keyed by the authoritative head identifier; status does not enumerate history or rehash objects. Quota reservation, restore and integrity verification continue to use authoritative repository content. Cached display summaries are rebuildable and do not grant object access.
 
 OpenJDK 21 WindowsFileAttributes returns null for `fileKey()` (see the OpenJDK source), so Windows uses positive creation time plus precise modification time and size as its advisory replacement hint. Unknown non-Windows identities stay untrusted. This does not weaken strict transfer/apply verification; ordinary metadata-preserving edits on Windows require a verified operation to detect.
+
+
+## 1.1.2 scan-only performance update
+
+Protocol/repository, server schema and client schema remain 2. No identity, credential, TLS-pin, installation or cache-format migration changes. `scan_cache_v2` rows may come from an incomplete scan and are always independent advisory hints. Bounded upserts never authorize deletions, baselines, manifests or destructive actions. Cache-row pruning runs only after a complete safe scan. Normal shutdown flushes verified hints. Ordered chunk references and profile fingerprints are unchanged. All scan modes are staging-free; explicit upload preparation retains hash-verified immutable objects and server verification.

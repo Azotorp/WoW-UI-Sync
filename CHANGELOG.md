@@ -1,3 +1,12 @@
+# 1.1.2-alpha
+
+- Query the shared head before automatic scanning; absent heads skip local work without hiding history/recovery or errors.
+- Separate all scans from upload staging, reuse small-file digests, and eliminate redundant source metadata reads.
+- Persist verified per-file hints in bounded batches and flush on cancellation/normal close; retry one unstable external-app write.
+- Add bounded optional 2/4-worker hashing, a separate 64 MiB content-buffer budget and a sequential default/fallback.
+- Report scan modes, cache-miss reasons and operation phases; preserve strict review/precommit/recovery/apply verification.
+- Ship a client-only update compatible with the installed 1.1.1-alpha server, alongside the deployment ZIP.
+
 # Changelog
 
 ## 1.1.1-alpha

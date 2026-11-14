@@ -1,0 +1,5 @@
+stats fresh-process Statistics[discovered=36000, cacheHits=36000, hashedFiles=0, bytesHashed=0, discoveryNanos=378063238, cacheNanos=410821982, metadataNanos=163645191, hashingNanos=0, manifestNanos=82232381, persistenceNanos=34236544, elapsedNanos=1183156059]
+Nov 14, 2026 12:08:51 AM io.github.azotorp.wowuisync.client.sync.Scanner scan
+INFO: Scan Statistics[discovered=36000, cacheHits=36000, hashedFiles=0, bytesHashed=0, discoveryNanos=378063238, cacheNanos=410821982, metadataNanos=163645191, hashingNanos=0, manifestNanos=82232381, persistenceNanos=34236544, elapsedNanos=1183156059] verified=false
+RESULT fresh-process files=36000 ms=1226.245 rchar=137192283 wchar=606 stagedFiles=36042 stagedBytes=505037961 fingerprint=b249d557da8b83b29d04e068fbef00202eff2c096d7a4693f3142f030fa73f26
+REFERENCES fresh-process 24bbca62ba1e534badb6590b42b65e9823f9f4d63785c65c16c64a052f95891f

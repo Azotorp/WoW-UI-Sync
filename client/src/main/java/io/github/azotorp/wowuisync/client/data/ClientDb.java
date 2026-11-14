@@ -47,6 +47,7 @@ public final class ClientDb implements AutoCloseable {
     private final Connection conn;
     private Path file;
     private final Map<String,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry>> decodedScans=new java.util.LinkedHashMap<>();
+    private final Map<String,java.util.Set<String>> corruptScans=new HashMap<>();
     private long cacheDataVersion=-1;
 
     public io.github.azotorp.wowuisync.client.crypto.CredentialVault vault() { return new io.github.azotorp.wowuisync.client.crypto.CredentialVault(file.getParent()); }
@@ -214,47 +215,74 @@ public final class ClientDb implements AutoCloseable {
     public synchronized Map<String, io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> scanCache(String root) throws SQLException {
         long version;
         try(var s=conn.createStatement();var r=s.executeQuery("PRAGMA data_version")) { version=r.next()?r.getLong(1):0; }
-        if(version!=cacheDataVersion) { decodedScans.clear();cacheDataVersion=version; }
+        if(version!=cacheDataVersion) { decodedScans.clear();corruptScans.clear();cacheDataVersion=version; }
         var existing=decodedScans.get(root);if(existing!=null)return existing;
         var out=new HashMap<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry>();
+        var corrupt=new java.util.HashSet<String>();
         try(var p=conn.prepareStatement("SELECT path,payload,checksum FROM scan_cache_v2 WHERE root=?")) {
             p.setString(1,root);
             try(var r=p.executeQuery()) { while(r.next()) {
                 var e=io.github.azotorp.wowuisync.client.sync.ScanCache.decode(r.getString(2),r.getString(3));
-                if(e!=null && r.getString(1).equals(e.manifest().path())) out.put(r.getString(1),e);
+                if(e!=null && r.getString(1).equals(e.manifest().path())) out.put(r.getString(1),e);else corrupt.add(r.getString(1));
             }}
         }
-        rememberScan(root,out);
+        rememberScan(root,out);corruptScans.put(root,java.util.Set.copyOf(corrupt));
         return decodedScans.get(root);
     }
-    private void rememberScan(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows) {
-        decodedScans.remove(root);decodedScans.put(root,Map.copyOf(rows));
-        if(decodedScans.size()>4)decodedScans.remove(decodedScans.keySet().iterator().next());
+    /** Distinguish malformed hints from genuinely absent entries without per-file queries. */
+    public synchronized java.util.Set<String> corruptScanCachePaths(String root) throws SQLException {
+        scanCache(root);return corruptScans.getOrDefault(root,java.util.Set.of());
     }
-    /** Persist only changed rows and obsolete paths, in one transaction. */
-    public synchronized void saveScanCache(String root, Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows) throws SQLException {
+
+    /** Bounded advisory upserts only. An interrupted scan must never infer deletions. */
+    public synchronized void mergeScanCache(String root, Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows) throws SQLException {
+        if(rows.isEmpty())return;
+        conn.setAutoCommit(false);
+        try(var put=conn.prepareStatement("INSERT INTO scan_cache_v2(root,path,payload,checksum) VALUES (?,?,?,?) ON CONFLICT(root,path) DO UPDATE SET payload=excluded.payload,checksum=excluded.checksum")) {
+            int count=0;
+            for(var item:rows.entrySet()) {
+                String payload=io.github.azotorp.wowuisync.client.sync.ScanCache.encode(item.getValue());
+                put.setString(1,root);put.setString(2,item.getKey());put.setString(3,payload);
+                put.setString(4,io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(payload.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                put.addBatch();
+                if(++count%128==0){put.executeBatch();conn.commit();}
+            }
+            put.executeBatch();conn.commit();
+        } catch(SQLException e){conn.rollback();throw e;}
+        finally {decodedScans.remove(root);corruptScans.remove(root);conn.setAutoCommit(true);}
+    }
+    /** Called only after complete, safe discovery/content validation. Never called on interruption. */
+    public synchronized void completeScanCache(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows) throws SQLException {
+        var known=new java.util.HashSet<>(scanCache(root).keySet());known.addAll(corruptScanCachePaths(root));
+        completeScanCache(root,rows,known);
+    }
+    public synchronized void completeScanCache(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows,java.util.Set<String> known) throws SQLException {
+        var obsolete=new java.util.ArrayList<String>();
+        for(String path:known)if(!rows.containsKey(path))obsolete.add(path);
+        if(!obsolete.isEmpty()) {
+            conn.setAutoCommit(false);
+            try(var del=conn.prepareStatement("DELETE FROM scan_cache_v2 WHERE root=? AND path=?")) {
+                int count=0;
+                for(String path:obsolete){del.setString(1,root);del.setString(2,path);del.addBatch();if(++count%128==0){del.executeBatch();conn.commit();}}
+                del.executeBatch();conn.commit();
+            } catch(SQLException e){conn.rollback();throw e;}
+            finally {conn.setAutoCommit(true);}
+        }
+        rememberScan(root,rows);
+    }
+    private void rememberScan(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows) {
+        decodedScans.remove(root);decodedScans.put(root,Map.copyOf(rows));corruptScans.put(root,java.util.Set.of());
+        if(decodedScans.size()>4){String oldest=decodedScans.keySet().iterator().next();decodedScans.remove(oldest);corruptScans.remove(oldest);}
+    }
+    /** Compatibility entry point: bounded verified-hint writes, then complete-scan pruning. */
+    public synchronized void saveScanCache(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows) throws SQLException {
         saveScanCache(root,rows,scanCache(root));
     }
-    public synchronized void saveScanCache(String root, Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows,
+    public synchronized void saveScanCache(String root,Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> rows,
             Map<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry> old) throws SQLException {
-        if(rows.equals(old))return;
-        conn.setAutoCommit(false);
-        try(var put=conn.prepareStatement("INSERT INTO scan_cache_v2(root,path,payload,checksum) VALUES (?,?,?,?) ON CONFLICT(root,path) DO UPDATE SET payload=excluded.payload,checksum=excluded.checksum");
-            var del=conn.prepareStatement("DELETE FROM scan_cache_v2 WHERE root=? AND path=?")) {
-            for(var item:rows.entrySet()) if(!item.getValue().equals(old.get(item.getKey()))) {
-                String json=io.github.azotorp.wowuisync.client.sync.ScanCache.encode(item.getValue());
-                put.setString(1,root);put.setString(2,item.getKey());put.setString(3,json);
-                put.setString(4,io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));put.addBatch();
-            }
-            // Include malformed rows in deletion, without trusting their contents.
-            try(var q=conn.prepareStatement("SELECT path FROM scan_cache_v2 WHERE root=?")) {
-                q.setString(1,root);try(var r=q.executeQuery()) { while(r.next()) if(!rows.containsKey(r.getString(1))) {
-                    del.setString(1,root);del.setString(2,r.getString(1));del.addBatch();
-                }}
-            }
-            put.executeBatch();del.executeBatch();conn.commit();rememberScan(root,rows);
-        } catch(SQLException e) { conn.rollback();throw e; }
-        finally { conn.setAutoCommit(true); }
+        var changes=new HashMap<String,io.github.azotorp.wowuisync.client.sync.ScanCache.Entry>();
+        for(var item:rows.entrySet())if(!item.getValue().equals(old.get(item.getKey())))changes.put(item.getKey(),item.getValue());
+        mergeScanCache(root,changes);completeScanCache(root,rows);
     }
 
     // ------------------------------------------------------------------ bases

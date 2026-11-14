@@ -28,3 +28,22 @@ This is alpha software. Read RELEASE-STATUS.md in the source repository for test
 The original artwork is embedded in the JAR. Settings can disable it, adjust its strength or select high contrast. Manual custom flavor identifiers require matching `additionalFlavors` entries on the server; recognized flavors keep their registry identities.
 
 Legacy backups can be imported into a verified server snapshot from Legacy backups. The imported copy is under your own account; original folders remain untouched. A normal restore can then use that snapshot.
+
+
+## 1.1.2 client scanning and update
+
+Replace only the client JAR with the client-only package; keep its existing data directory, settings, keys, TLS pins, credentials, installation IDs and baselines. The existing 1.1.1-alpha server is compatible (protocol/repository/schema stay 2); no server update or setup is required.
+
+The client asks for the selected account/flavor's shared head before automatic scanning. When absent: “No synced files yet. Push this installation to create the first snapshot.” Local content remains unscanned; historical/recovery snapshots are independent. Existing zero-file snapshots are scanned normally. Errors are not an empty-server result. Explicit Push probes again, performs strict verification, rechecks status and uses server compare-and-swap at begin/commit. Pending journals still require Recovery first.
+
+Modes: **First cache fill**, **Cached check**, and **Strict verification**. Discovery is indeterminate; metadata comparison, content hashing/chunking, cache persistence, upload staging, transfer and verification have their own phase labels. Counts show files checked/total, cache hits, files hashed, actual source bytes read (including retries), elapsed time and mode. Hashing time sums worker work and can exceed wall time. Logs report miss reasons: absent entry, changed metadata, recent timestamp, unavailable identity, corrupt entry or strict verification.
+
+Every stable verified file becomes an advisory cache hint. The coordinator saves at most 128 changed entries per transaction. Cancel and normal window-close flush remaining completed results, including workers that finished just before cancellation. No full manifest, deletion inference or baseline is published after an incomplete scan. A forced kill/power loss may lose the current batch; the next scan rehashes those files. Discovery/metadata comparisons still run after restart, but trusted unchanged file bytes are not reread. Windows uses the existing precise creation-time fallback for null file keys. Recent/unknown metadata is untrusted; metadata-preserving edits can evade advisory checks, so strict operation checks remain mandatory.
+
+TSM's external application may update `TradeSkillMaster_AppHelper/AppData.lua` with WoW closed. Discovery metadata is refreshed before hashing, and an unstable file gets one retry. If it keeps changing, pause the external updater and retry. Successfully verified other files remain cached; the app does not silently omit TSM data.
+
+Default: **one** content worker, avoiding per-file thread handoffs. To evaluate parallel hashing, launch `java -Dwowuisync.scanWorkers=2 -jar YOUR_EXISTING_CLIENT.jar` or use `4`. `1` is the sequential fallback for HDD/network drives. Values clamp to 1–4; only a worker-sized task window is outstanding. A separate 64 MiB content-buffer semaphore limits live file/chunk buffers, even for arbitrarily large files. JVM/metadata/cache memory is additional. A large CDC worker reserves 17 MiB; at most three such workers run together. SQLite stays on the coordinator. Results and fingerprints are deterministic regardless of completion order. Cancellation interrupts/drains workers before returning; pause checkpoints are honored by operation scans.
+
+Scans never create upload staging. Only requested missing objects are generated/verified during upload preparation; all uploads retain server full-file/hash/length verification. Review and precommit strict scans, recovery snapshots, pre-apply checks, immutable reconstruction, journals and post-apply verification remain. No new persistent Interface/WTF backup folders are created.
+
+See the engineering report for exact measurements and limitations. Native CI checks correctness/packaging, not desktop performance, antivirus latency or physical cold-disk throughput.

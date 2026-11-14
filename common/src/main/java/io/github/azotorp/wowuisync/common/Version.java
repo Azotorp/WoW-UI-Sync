@@ -3,7 +3,7 @@ package io.github.azotorp.wowuisync.common;
 /** Application and protocol version constants (DESIGN.md §10.3). */
 public final class Version {
     /** Human-readable application version. */
-    public static final String APP_VERSION = "1.1.1-alpha";
+    public static final String APP_VERSION = "1.1.2-alpha";
     /** Wire protocol version. Bump on any incompatible protocol change. */
     public static final int PROTOCOL_VERSION = 2;
     /** Oldest peer protocol version this build can talk to. */

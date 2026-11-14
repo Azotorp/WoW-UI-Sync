@@ -1,0 +1,9 @@
+jdk.FileRead database/runtime events=1690 bytes=633524 ms=5.390
+jdk.FileRead source events=121079 bytes=505037951 ms=629.256
+jdk.FileWrite database/runtime events=1 bytes=362 ms=0.046
+jdk.FileWrite staging events=79747 bytes=505037951 ms=1997.941
+CPU samples chunking=24
+CPU samples hashing=8
+CPU samples metadata/cache=13
+CPU samples other/runtime=60
+CPU samples path validation=21

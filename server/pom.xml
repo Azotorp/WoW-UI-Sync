@@ -6,7 +6,7 @@
   <parent>
     <groupId>io.github.azotorp.wowuisync</groupId>
     <artifactId>wow-ui-sync</artifactId>
-    <version>1.1.1-alpha</version>
+    <version>1.1.2-alpha</version>
   </parent>
   <artifactId>wow-ui-sync-server</artifactId>
   <name>WoW UI Sync server</name>

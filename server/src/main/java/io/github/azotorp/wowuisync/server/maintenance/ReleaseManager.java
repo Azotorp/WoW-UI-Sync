@@ -47,7 +47,32 @@ public final class ReleaseManager {
         try(var zip=new ZipOutputStream(Files.newOutputStream(out))){zip.setLevel(6);for(var e:files.entrySet()){ZipEntry entry=new ZipEntry(e.getKey());entry.setTime(0);zip.putNextEntry(entry);zip.write(e.getValue());zip.closeEntry();}}
         unixModes(out);
         ManifestIO.write(out.resolveSibling(out.getFileName()+".sha256"),(Hashing.sha256Hex(out)+"  "+out.getFileName()+"\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        inspect(out);System.out.println(out);return out;
+        inspect(out);packClient(root);System.out.println(out);return out;
+    }
+    /** Manual client-only replacement package; never accepted by the server activation inspector. */
+    public static Path packClient(Path source) throws Exception {
+        Path root=source.toAbsolutePath().normalize(),client=root.resolve("dist/wow-ui-sync-client.jar");
+        jar(client,"io.github.azotorp.wowuisync.client.ClientMain");
+        Map<String,byte[]> files=new TreeMap<>();
+        files.put("client/wow-ui-sync.client.jar",Files.readAllBytes(client));
+        files.put("client/README.txt",Files.readAllBytes(root.resolve("docs/CLIENT-1.1.md")));
+        files.put("LICENSE",Files.readAllBytes(root.resolve("LICENSE")));
+        StringBuilder sums=new StringBuilder();
+        files.forEach((name,bytes)->sums.append(Hashing.sha256Hex(bytes)).append("  ").append(name).append('\n'));
+        files.put("SHA256SUMS",sums.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Path out=root.resolve("dist/releases/wow-ui-sync-client-"+Version.APP_VERSION+".zip");Files.createDirectories(out.getParent());
+        try(var zip=new ZipOutputStream(Files.newOutputStream(out))){zip.setLevel(6);for(var entry:files.entrySet()){
+            ZipEntry member=new ZipEntry(entry.getKey());member.setTime(0);zip.putNextEntry(member);zip.write(entry.getValue());zip.closeEntry();
+        }}
+        unixModes(out);
+        try(var zip=new ZipFile(out.toFile())) {
+            if(zip.size()!=files.size())throw new IOException("Client package membership mismatch");
+            for(var entry:files.entrySet())try(var in=zip.getInputStream(zip.getEntry(entry.getKey()))) {
+                if(!Arrays.equals(entry.getValue(),in.readAllBytes()))throw new IOException("Client package bytes mismatch");
+            }
+        }
+        ManifestIO.write(out.resolveSibling(out.getFileName()+".sha256"),(Hashing.sha256Hex(out)+"  "+out.getFileName()+"\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        System.out.println(out);return out;
     }
     /** ZIP central-directory permissions, without platform-specific archivers. */
     private static void unixModes(Path archive) throws IOException {

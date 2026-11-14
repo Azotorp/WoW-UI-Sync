@@ -1,4 +1,4 @@
-# WoW UI Sync 1.1.1-alpha
+# WoW UI Sync 1.1.2-alpha
 
 Self-hosted Java 21 desktop client and TLS server for synchronizing WoW addons and settings, with incremental transfers, deduplication and immutable server-side snapshots. Different WoW flavors stay isolated. GPLv3; not affiliated with Blizzard.
 
@@ -51,9 +51,19 @@ Close the client, replace only its existing JAR at the same path, and reopen it.
 
 Upgrade a protocol-1 server before using a protocol-2 client. Version errors identify the incompatible peer; no cross-flavor conversion is supported.
 
+## Client update from 1.1.1-alpha
+
+The 1.1.2 client works with the existing 1.1.1-alpha protocol-2 server; a real-process integration rehearsal exercises push, pull, recovery, restore and empty-head races against that exact server build. Use the client-only ZIP, close the client normally, replace its JAR and reopen. Preserve its existing data folder. No server setup, deployment, service/path change or new cache migration is needed.
+
 ## Scanning and integrity
 
-Ordinary status checks compare path, size, precise modification/creation times, file identity and Unix change time when supported. Recent timestamps and unknown identities are rehashed. On Windows, where Java returns no file key, creation time is the replacement hint. They do not read or stage trusted unchanged content. Progress shows discovery, metadata/cache comparison, changed-file hashing, manifest construction and server contact. Cancel stops scanning; cancelling a blocked status request closes that connection and requires reconnection.
+Connection/profile selection queries the authoritative server head first. No head means no automatic local discovery, hashing or staging; the first scan begins on explicit Push. An existing empty snapshot still has a head. History and recovery remain available, and network/authentication failures are errors. Pending local journals block sync even without a head.
+
+Ordinary status checks compare path, size, precise modification/creation times, file identity and Unix change time when supported. Recent timestamps and unknown identities are rehashed. On Windows, where Java returns no file key, creation time is the replacement hint. They do not read trusted unchanged content. All scans, including strict verification, build hashes/references without staging. Upload preparation stages only requested objects, with full verification. Progress shows discovery, metadata/cache comparison, changed-file hashing, manifest construction and server contact. Verified file hints are saved every 128 changed entries, with one SQLite writer and bounded transactions. Cancellation/failure saves the final completed batch; normal window-close cancels workers, drains verified results and flushes before exit. Force-kill/power loss can lose the current batch; already committed hints survive. Partial scans never publish a manifest, infer deletions or change sync baselines. A file updated by an external app such as TSM is retried once with fresh metadata, then fails safely if it keeps changing.
+
+The default is one hashing worker. Set `java -Dwowuisync.scanWorkers=2 -jar YOUR_EXISTING_CLIENT.jar` (or `4`) to evaluate parallel hashing; `1` is the HDD/network-drive fallback. Values are clamped to 1–4. Outstanding tasks and a separate 64 MiB content-buffer budget are bounded. This budget excludes metadata, manifests, JVM and cache memory. Measurements do not establish a universal parallel speedup.
+
+Cancel stops scanning; cancelling a blocked status request closes that connection and requires reconnection.
 
 A metadata cache is a status hint. Windows does not expose Unix change time through this provider; metadata-preserving edits can evade an advisory check. Push commits and destructive apply/recovery retain full verification, and every uploaded chunk/file is verified by hash and length. Consequently these operations can still read unchanged content for integrity. First scans also populate the CDC cache and can be slower than v1. No new persistent full-folder Interface/WTF backups are created; immutable server recovery snapshots and temporary staging/journals protect destructive operations.
 
