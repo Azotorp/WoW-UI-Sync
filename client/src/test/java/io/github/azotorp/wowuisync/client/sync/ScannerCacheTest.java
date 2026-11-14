@@ -52,7 +52,10 @@ class ScannerCacheTest {
    Path link=wow.resolve("WTF/link");try{Files.createSymbolicLink(link,dir);}catch(UnsupportedOperationException|java.io.IOException e){Assumptions.abort("Symlink creation unavailable");}
    assertThrows(Exception.class,()->scan(db));Files.delete(link);
    write("WTF/CON.lua","x");assertThrows(Exception.class,()->scan(db));Files.delete(wow.resolve("WTF/CON.lua"));
-   if(!System.getProperty("os.name").toLowerCase().contains("win")){write("WTF/A.lua","x");assertThrows(Exception.class,()->scan(db));}
+   Path upper=write("WTF/A.lua","x");
+   // macOS commonly uses a case-insensitive volume too: two spellings may be one file.
+   if(Files.isSameFile(upper,wow.resolve("WTF/a.lua"))) assertNotNull(scan(db));
+   else assertThrows(Exception.class,()->scan(db));
   }
  }
  @Test void schemaOneMigrationPreservesPinsAndProducesConsistentBackup()throws Exception {
