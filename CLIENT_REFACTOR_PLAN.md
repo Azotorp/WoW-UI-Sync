@@ -57,6 +57,22 @@ The shared chooser implementation, OS integration, and timing should be evaluate
 - Selecting a valid parent updates the version list automatically; no Detect button is needed.
 - All client-facing "flavor" terminology referring to game installations changes to "version" without breaking serialized/internal identifiers or server compatibility.
 
+## Installation discovery: launcher signature and Windows registry (owner decisions, 2026-11-14)
+
+The folder **name is not a reliable installation identifier**. `C:\Games\WoW`, `D:\Games\World of Warcraft`, or any custom-named parent folder may be valid. The goal is to locate the game installation **by contents**, not by insisting its name equal "World of Warcraft".
+
+- On Windows, treat the **exact file `World of Warcraft Launcher.exe` in the parent installation directory** as a high-confidence discovery marker. Look up the file path, not just the name of its parent directory. The known exact spelling includes spaces and capital W/W/L.
+- Do **not** make that EXE mandatory for all valid installs, since copied, portable, private-server, and otherwise nonstandard installations might have version folders with valid game executables, `Interface` and `WTF` yet lack this launcher. Secondary validation signals can include `.build.info`, `Data`, and recognizable version subdirectories containing game executables or `Interface`/`WTF`. Do not accept an arbitrary directory based on its name alone.
+- **Windows registry discovery should run before guessed-path searches**, read-only and best-effort. Probe registered WoW installation paths under `HKLM\SOFTWARE\Blizzard Entertainment\World of Warcraft` (including the 32-bit view / `WOW6432Node`) for `InstallPath`; examine relevant `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` entries (both registry views) with WoW display names and an `InstallLocation`, when present. Consider `HKCU` entries where applicable, and deduplicate. Registry entries may be missing, stale, or point to a subfolder, so **normalize and validate every candidate against actual files**. Do not edit the registry or require elevated privileges.
+- When registry information is missing or invalid, check **bounded, fast, common-location candidates** on available local drives: OS-provided `ProgramFiles` and `ProgramFiles(x86)`, and shallow locations such as `Games`, `Blizzard`, `World of Warcraft`, `WoW`, and their common combinations. Recognize arbitrary directory names in candidate parent locations by their EXE/content signature rather than relying only on a fixed named folder.
+- On **case-insensitive Windows filesystems**, match candidate folder names case-insensitively and read actual directory entries; do not generate dozens of casing permutations. On Linux, honor filesystem case sensitivity, and never apply a blanket lower-case path conversion. Check filename case consistent with the platform.
+- Search only reasonable, bounded parent folders (avoid recursively crawling whole disks, network drives, or every file). Run potentially slow disk/registry discovery off the Swing event-dispatch thread; keep UI responsive and report progress or timeout/failure without freezing.
+- Detection is **automatic on opening first-time setup/Settings**, and after changing the selected folder. Once it identifies candidate parent directories, list their recognized versions (e.g. `_forever_`) without a Detect button.
+- If multiple valid installations are detected, **let the user pick which one to use**; never silently choose or overwrite a saved selection. A previously saved valid root remains the highest priority. An installer path is only a candidate, not proof.
+- Preserve the explicit guidance to choose the parent installation directory, not the version subfolder. No server, wire protocol, or persistent configuration format changes for this feature.
+
+Reference evidence checked 2026-11-14: Blizzard forum install layouts identify `World of Warcraft Launcher.exe` in the parent directory; Microsoft documents `InstallLocation` in Windows uninstall registry; community examples identify Blizzard's legacy `InstallPath` registry value. These are **candidate sources**, not universal guarantees.
+
 ## Verification and acceptance
 
 - Reproduce the slow folder navigation on the original client when possible; record Windows version, Java runtime, path type, and elapsed times for opening and navigating.
