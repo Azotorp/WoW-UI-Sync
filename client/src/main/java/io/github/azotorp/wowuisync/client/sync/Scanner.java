@@ -215,6 +215,7 @@ public final class Scanner {
             long end=System.nanoTime();
             var stats=new Statistics(files.size(),hits,hashed,bytesRead.get(),discoveredAt-start,loadedAt-discoveredAt,metadataNanos,hashingNanos,hashedAt-manifestStart,persistenceNanos+end-hashedAt,end-start,mode,Map.copyOf(misses),workers);
             if(progress!=null){progress.update(done,files.size());progress.statistics(stats);}
+            checkCancelled(cancelled);
             io.github.azotorp.wowuisync.client.util.ClientLog.LOG.info("Scan "+stats+" verified="+verify);
             return new LocalScan(base,manifest,byKey,List.of(),collisions);
         } catch(ScanCancelled e) { throw new CancelledException(); }

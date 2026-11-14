@@ -158,6 +158,7 @@ final class SyncController {
     }
 
     private void pushConfirm(Ctx c, SyncStatus s, io.github.azotorp.wowuisync.client.sync.TransferControl control) {
+        if(control.cancelled()){done("Push cancelled.");return;}
         if (!s.scan().skippedInvalid().isEmpty()) {
             Dialogs.warn(w, "These files are skipped because their names are not valid on Windows:\n\n"
                     + String.join("\n", s.scan().skippedInvalid().subList(0, Math.min(40, s.scan().skippedInvalid().size()))));
@@ -178,6 +179,7 @@ final class SyncController {
     }
 
     private void pushReview(Ctx c, SyncStatus s, Msg.PushNeed need, io.github.azotorp.wowuisync.client.sync.TransferControl control) {
+        if(control.cancelled()){ops.pushCancel(c.conn(),need);done("Push cancelled.");return;}
         boolean nothing = need.newFiles().isEmpty() && need.editedFiles().isEmpty() && need.removedFiles().isEmpty();
         if (nothing && need.missingHashes().isEmpty() && s.server().currentFingerprint() != null) {
             ops.pushCancel(c.conn(), need);
@@ -228,6 +230,7 @@ final class SyncController {
             scanRef.set(scan);
             return source;
         }, src -> {
+            if(control.cancelled()){done("Pull cancelled.");return;}
             w.progress.phase("Choose what to pull…");
             PullSelectionDialog.Choice ch = PullSelectionDialog.show(w, c.account().username(), src, scanRef.get());
             if (ch == null) {
@@ -241,6 +244,7 @@ final class SyncController {
     }
 
     private void pullReview(Ctx c, LocalScan scan, Msg.PullPlan plan, io.github.azotorp.wowuisync.client.sync.TransferControl control) {
+        if(control.cancelled()){done("Pull cancelled.");return;}
         if (plan.newFiles().isEmpty() && plan.editedFiles().isEmpty() && plan.removedFiles().isEmpty()) {
             done("Nothing to pull.");
             Dialogs.info(w, "Nothing to change: this PC already matches your selection.");

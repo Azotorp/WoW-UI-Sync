@@ -45,7 +45,15 @@ class ScannerCacheTest {
    Files.delete(db.staging().resolve(e.sha256()));write("WTF/a.lua","new");assertThrows(Exception.class,()->Scanner.ensureStaged(s,Set.of(e.sha256()),db.staging(),()->false));}
  }
  @Test void cancellationDoesNotPublishPartialCache()throws Exception {
-  try(var db=db()){assertThrows(CancelledException.class,()->Scanner.scan(wow,ex,db,new Scanner.Progress(){public void update(int d,int t){}},()->true));assertTrue(db.scanCache(wow.toAbsolutePath().toString()).isEmpty());}
+  try(var db=db()){assertThrows(CancelledException.class,()->Scanner.scan(wow,ex,db,new Scanner.Progress(){public void update(int d,int t){}},()->true));assertTrue(db.scanCache(wow.toAbsolutePath().toString()).isEmpty());
+   var finalPhase=new java.util.concurrent.atomic.AtomicBoolean();var cancelled=new java.util.concurrent.atomic.AtomicBoolean();
+   assertThrows(CancelledException.class,()->Scanner.scan(wow,ex,db,new Scanner.Progress(){
+    public void update(int d,int t){}
+    public void phase(String phase){if(phase.contains("completing local manifest"))finalPhase.set(true);}
+    public void statistics(Scanner.Statistics stats){if(finalPhase.get())cancelled.set(true);}
+   },cancelled::get));
+   assertEquals(2,db.scanCache(wow.toAbsolutePath().toString()).size()); // hints survive, no LocalScan is published
+  }
  }
  @Test void symlinksUnsafeNamesAndCaseCollisionsFailClosed()throws Exception {
   try(var db=db()){
