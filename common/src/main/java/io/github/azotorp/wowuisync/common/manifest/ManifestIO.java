@@ -17,7 +17,7 @@ public final class ManifestIO {
     private ManifestIO() {}
 
     public static byte[] toJson(Manifest m) {
-        return Json.toBytes(new ManifestJson(1, m.entries()));
+        return Json.toBytes(new ManifestJson(2, m.entries()));
     }
 
     public static Manifest fromJson(byte[] json) {
@@ -36,12 +36,15 @@ public final class ManifestIO {
 
     /** Writes atomically (temp file + rename). */
     public static void write(Path file, byte[] data) throws IOException {
-        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+        Path tmp = file.resolveSibling(file.getFileName() + "." + java.util.UUID.randomUUID() + ".tmp");
         Files.write(tmp, data);
+        try (var channel = java.nio.channels.FileChannel.open(tmp, java.nio.file.StandardOpenOption.WRITE)) { channel.force(true); }
         try {
             Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (java.nio.file.AtomicMoveNotSupportedException e) {
             Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
         }
+        try (var channel = java.nio.channels.FileChannel.open(file.toAbsolutePath().getParent(), java.nio.file.StandardOpenOption.READ)) { channel.force(true); }
+        catch (UnsupportedOperationException | IOException ignored) { /* directory fsync unavailable on Windows */ }
     }
 }

@@ -6,11 +6,21 @@ import io.github.azotorp.wowuisync.client.util.CancelledException;
 public class TransferControl {
     private volatile boolean paused;
     private volatile boolean cancelled;
+    private Runnable cancellation;
 
     public boolean paused() { return paused; }
     public boolean cancelled() { return cancelled; }
     public void setPaused(boolean p) { paused = p; }
-    public void cancel() { cancelled = true; }
+    public void cancel() {
+        Runnable action;
+        synchronized(this) { cancelled=true;action=cancellation;cancellation=null; }
+        if(action!=null)action.run();
+    }
+    public void onCancel(Runnable action) {
+        boolean run;
+        synchronized(this) { run=cancelled;cancellation=run?null:action; }
+        if(run && action!=null)action.run();
+    }
 
     /** Blocks while paused; throws if cancelled. */
     public void checkpoint() throws CancelledException {

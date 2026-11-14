@@ -107,6 +107,7 @@ public final class ClientApp {
         this.flavor = f;
         if (f != null) {
             config.lastProfileId = f.profileId();
+            config.lastInstallationId=config.installationId(f.path());
             saveConfig();
         }
         fire();
@@ -118,7 +119,21 @@ public final class ClientApp {
     }
 
     public List<Flavor> flavors() {
-        return FlavorDetector.detect(installRoot());
+        java.util.LinkedHashMap<String,Flavor> found=new java.util.LinkedHashMap<>();
+        java.util.List<Path> roots=new java.util.ArrayList<>();
+        if(installRoot()!=null) roots.add(installRoot());
+        for(String r:config.installRoots) roots.add(Paths.get(r));
+        Path suggested=FlavorDetector.suggestedRoot();if(suggested!=null) roots.add(suggested);
+        for(Path root:roots) for(Flavor f:FlavorDetector.detect(root)) {
+            found.putIfAbsent(config.installationId(f.path()),f);
+        }
+        for(var entry:config.manualFlavors.entrySet()) {
+            Path path=Paths.get(entry.getKey());if(!java.nio.file.Files.isDirectory(path))continue;
+            for(var detected:FlavorDetector.detect(path))if(detected.path().equals(path)&&!io.github.azotorp.wowuisync.common.profile.Profiles.isEnabled(detected.profileId()))
+                found.put(config.installationId(path),new Flavor(path.getFileName().toString(),path,entry.getValue(),detected.valid(),true));
+        }
+        saveConfig();
+        return java.util.List.copyOf(found.values());
     }
 
     public Path installRoot() {
@@ -130,9 +145,12 @@ public final class ClientApp {
         Flavor keep = null;
         for (Flavor f : flavors()) {
             if (!f.enabled()) continue;
-            if (keep == null || f.profileId().equals(config.lastProfileId)) keep = f;
+            if(keep==null) keep=f;
+            if(config.lastInstallationId!=null && config.installationId(f.path()).equals(config.lastInstallationId)) { keep=f;break; }
+            if(config.lastInstallationId==null && f.profileId().equals(config.lastProfileId)) keep=f;
         }
         this.flavor = keep;
+        if(keep!=null && config.lastInstallationId==null) { config.lastInstallationId=config.installationId(keep.path());saveConfig(); }
         fire();
     }
 

@@ -19,10 +19,22 @@ public class ClientConfig {
     public String deviceId;
     public String deviceNickname = "My PC";
     public String installRoot;
+    public List<String> installRoots = new ArrayList<>();
+    public Map<String,String> installationIds = new LinkedHashMap<>();
+    public String lastInstallationId;
+    public Map<String,String> manualFlavors=new LinkedHashMap<>();
+    public synchronized String installationId(Path path) {
+        String key;
+        try { key=path.toRealPath().toString(); } catch(IOException e) { key=path.toAbsolutePath().normalize().toString(); }
+        if(System.getProperty("os.name","").toLowerCase().contains("win")) key=key.toLowerCase(java.util.Locale.ROOT);
+        return installationIds.computeIfAbsent(key,k->UUID.randomUUID().toString());
+    }
     public Map<String, ProfileSettings> profiles = new LinkedHashMap<>();
     public int dataConnections = Defaults.DATA_CONNECTIONS;
     /** {@code dark} or {@code light}. */
     public String theme = "dark";
+    public boolean wallpaper=true;
+    public int wallpaperOpacity=30;
     public String lastConnectionId;
     public String lastProfileId = "forever";
 
@@ -47,6 +59,9 @@ public class ClientConfig {
         }
         if (c.deviceId == null || c.deviceId.isBlank()) c.deviceId = UUID.randomUUID().toString();
         if (c.deviceNickname == null || c.deviceNickname.isBlank()) c.deviceNickname = "My PC";
+        if(c.manualFlavors==null)c.manualFlavors=new LinkedHashMap<>();
+        if(c.installRoots==null) c.installRoots=new ArrayList<>();
+        if(c.installationIds==null) c.installationIds=new LinkedHashMap<>();
         if (c.profiles == null) c.profiles = new LinkedHashMap<>();
         if (c.dataConnections < 1 || c.dataConnections > Defaults.MAX_DATA_CONNECTIONS) c.dataConnections = Defaults.DATA_CONNECTIONS;
         return c;

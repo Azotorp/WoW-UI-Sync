@@ -27,6 +27,8 @@ public final class ClientMain {
             Files.createDirectories(paths.root());
             ClientLog.init(paths.logs());
             ClientLog.LOG.info(Version.APP_NAME + " client " + Version.APP_VERSION + " starting; data in " + paths.root());
+            paths.cleanTransient();
+            Runtime.getRuntime().addShutdownHook(new Thread(()->{try{paths.cleanTransient();}catch(java.io.IOException ignored){}},"transient-cleanup"));
             ClientConfig cfg = ClientConfig.load(paths.config());
             cfg.save(paths.config());
             ClientDb db = ClientDb.open(paths.db(), paths.dbBackups());

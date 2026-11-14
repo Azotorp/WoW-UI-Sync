@@ -2,6 +2,7 @@ package io.github.azotorp.wowuisync.common.protocol;
 
 /** Error codes used in {@code ERROR} messages. */
 public final class ErrorCodes {
+    public static final String FLAVOR_MISMATCH = "FLAVOR_MISMATCH";
     public static final String BAD_REQUEST = "bad_request";
     public static final String NOT_LOGGED_IN = "not_logged_in";
     public static final String FORBIDDEN = "forbidden";

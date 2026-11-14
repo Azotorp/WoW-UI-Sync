@@ -79,9 +79,9 @@ public final class InviteService {
     /** Pre-login: creates an account from an invite. */
     public Msg.AccountInfo redeem(String ip, Msg.InviteRedeem m) throws ApiException, SQLException, IOException {
         guard.checkIp(ip);
-        synchronized (this) {
+        synchronized (ctx.db) {
             InviteRow i = m.secret() == null ? null : ctx.db.inviteBySecretHash(hashSecret(m.secret())).orElse(null);
-            if (i == null) {
+            if (i == null || i.expiresAt()!=null && i.expiresAt()<=System.currentTimeMillis() || i.usesLeft()!=null && i.usesLeft()<1) {
                 guard.ipFailure(ip);
                 throw new ApiException(ErrorCodes.INVALID, "This invite code is not valid, has expired, or has been used up.");
             }
@@ -90,11 +90,16 @@ public final class InviteService {
                 ctx.db.deleteInvite(i.id());
                 throw new ApiException(ErrorCodes.INVALID, "This invite code is no longer valid.");
             }
-            AccountRow row = accounts.createAccount(m.username(), i.role(), owner.id(), m.email(), m.password(), m.publicKey(),
-                    null, null, null);
-            ctx.db.consumeInvite(i);
-            Logs.LOG.info("Invite redeemed: " + row.username() + " (owner " + owner.username() + ")");
-            return accounts.info(row);
+            if(!Access.canCreate(owner,i.role())) throw new ApiException(ErrorCodes.FORBIDDEN,"Invite owner no longer has permission");
+            accounts.checkCap(owner,0,false);
+            try {
+                return ctx.db.transaction(()-> {
+                    AccountRow row=accounts.createAccount(m.username(),i.role(),owner.id(),m.email(),m.password(),m.publicKey(),null,null,null);
+                    ctx.db.consumeInvite(i);
+                    Logs.LOG.info("Invite redeemed: "+row.username()+" owner "+owner.username());return accounts.info(row);
+                });
+            } catch(ApiException|SQLException|IOException e) { throw e; }
+            catch(Exception e) { throw new IOException("Account registration failed",e); }
         }
     }
 }

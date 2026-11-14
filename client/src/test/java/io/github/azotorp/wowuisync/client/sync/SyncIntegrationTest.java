@@ -52,12 +52,23 @@ class SyncIntegrationTest {
         Files.write(p, b);
     }
 
+    private final java.util.List<ClientApp> clients = new java.util.ArrayList<>();
+
+    @org.junit.jupiter.api.AfterEach
+    void closeClients() throws Exception {
+        for (ClientApp app : clients) {
+            try { app.disconnect(); } finally { app.db().close(); }
+        }
+    }
+
     private ClientApp client(String name) throws Exception {
         ClientPaths paths = new ClientPaths(dir.resolve(name + "-data"));
         ClientConfig cfg = ClientConfig.load(paths.config());
         cfg.deviceNickname = name;
         cfg.installRoot = dir.resolve(name + "-wow").toString();
-        return new ClientApp(paths, cfg, ClientDb.open(paths.db(), paths.dbBackups()));
+        ClientApp app = new ClientApp(paths, cfg, ClientDb.open(paths.db(), paths.dbBackups()));
+        clients.add(app);
+        return app;
     }
 
     @Test
@@ -140,7 +151,10 @@ class SyncIntegrationTest {
             ops2.pullApply(c2, root, fl2, s2, plan, new TransferControl(), SINK, null);
             assertArrayEquals(big, Files.readAllBytes(f2.resolve("Interface/AddOns/Details/sounds/big.ogg")));
             assertFalse(Files.exists(f2.resolve("Interface/AddOns/Old")));
-            assertEquals(1, Backups.list(pc2.db(), f2).size());
+            assertEquals(0, Backups.list(pc2.db(), f2).size());
+            var history=c2.call(new Msg.SnapshotList(root.id(),"forever"),Msg.SnapshotListResp.class);
+            assertEquals(2,history.snapshots().size());
+            assertTrue(history.snapshots().stream().anyMatch(x->"before_pull_recovery".equals(x.sourceType())&&!x.current()));
             LocalScan s2b = ops2.scan(fl2, null, () -> false);
             assertEquals(SyncStatus.Kind.UP_TO_DATE, ops2.status(c2, root, fl2, s2b).kind());
 
@@ -164,6 +178,29 @@ class SyncIntegrationTest {
             ops1.pullApply(c1, root, fl1, s1b, p2, new TransferControl(), SINK, null);
             assertEquals("WeakAurasSaved = {changed=true}", Files.readString(f1.resolve("WTF/Account/ACC/SavedVariables/WeakAuras.lua")));
             assertEquals(SyncStatus.Kind.UP_TO_DATE, ops1.status(c1, root, fl1, ops1.scan(fl1, null, () -> false)).kind());
+            // Restore the original snapshot; all later history remains retained.
+            var snapshots=c1.call(new Msg.SnapshotList(root.id(),"forever"),Msg.SnapshotListResp.class).snapshots();
+            var first=snapshots.stream().filter(x->"push".equals(x.sourceType())).min(java.util.Comparator.comparingLong(Msg.SnapshotInfo::createdAt)).orElseThrow();
+            var firstManifest=c1.call(new Msg.SnapshotGet(root.id(),"forever",first.id()),Msg.ManifestResp.class);
+            var local=ops1.scan(fl1,null,()->false);
+            var diff=io.github.azotorp.wowuisync.common.manifest.ManifestDiff.between(local.manifest(),new io.github.azotorp.wowuisync.common.manifest.Manifest(firstManifest.entries()));
+            var restorePlan=new Msg.PullPlan(diff.added(),diff.edited(),diff.removed().stream().map(io.github.azotorp.wowuisync.common.manifest.ManifestEntry::path).toList(),diff.transferBytes(),first.fingerprint(),true);
+            ops1.apply(c1,root,fl1,local,restorePlan,new TransferControl(),SINK,"before_restore");
+            assertEquals("WeakAurasSaved = {}",Files.readString(f1.resolve("WTF/Account/ACC/SavedVariables/WeakAuras.lua")));
+            assertTrue(c1.call(new Msg.SnapshotList(root.id(),"forever"),Msg.SnapshotListResp.class).snapshots().size()>snapshots.size());
+            // The same snapshot id cannot be accessed using another flavor.
+            var mismatch=assertThrows(io.github.azotorp.wowuisync.common.protocol.ProtocolException.class,()->c1.call(new Msg.SnapshotGet(root.id(),"retail",first.id()),Msg.ManifestResp.class));
+            assertEquals("FLAVOR_MISMATCH",mismatch.code());
+            c1.call(new Msg.SnapshotVerify(root.id(),"forever",first.id()),Msg.Ok.class);
+            assertEquals(0,Backups.list(pc1.db(),f1).size());
+            // Fresh Retail install without WTF/Interface is recognized and independently syncs.
+            Path retail=dir.resolve("pc1-wow/_retail_");write(retail.resolve(".flavor.info"),"x".getBytes());
+            assertTrue(io.github.azotorp.wowuisync.client.wow.FlavorDetector.detect(retail.getParent()).stream().anyMatch(x->x.profileId().equals("retail")&&x.enabled()));
+            Flavor retailFlavor=new Flavor("_retail_",retail,"retail",true);
+            write(retail.resolve("WTF/retail.lua"),"retail".getBytes());
+            var retailScan=ops1.scan(retailFlavor,null,()->false);var retailNeed=ops1.pushBegin(c1,root,retailFlavor,retailScan,null);
+            ops1.pushUpload(c1,root,retailFlavor,retailScan,retailNeed,new TransferControl(),SINK);
+            assertNotEquals(ops1.status(c1,root,fl1,ops1.scan(fl1,null,()->false)).server().currentFingerprint(),ops1.status(c1,root,retailFlavor,retailScan).server().currentFingerprint());
             assertNotNull(login);
             c1.close();
             c2.close();

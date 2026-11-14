@@ -73,6 +73,7 @@ class ServerFlowTest {
         t.start();
         Thread.sleep(1500);
         try {
+            io.github.azotorp.wowuisync.server.maintenance.Readiness.check(l);
             Wire c = connect(port);
             Msg.HelloOk ok = c.call(new Msg.Hello(Version.PROTOCOL_VERSION, Version.APP_VERSION, Codec.supported(), "dev1", "Test PC"), Msg.HelloOk.class);
             c.setCodec(Codec.byName(ok.codec()));
@@ -80,6 +81,7 @@ class ServerFlowTest {
             assertEquals("bad_credentials", bad.message(Msg.LoginFail.class).reason());
             Msg.LoginOk login = c.call(new Msg.LoginPassword("root", "password1"), Msg.LoginOk.class);
             String rootId = login.accountId();
+            assertEquals("Credential verified",c.call(new Msg.LoginPassword("root","password1"),Msg.Ok.class).message());
 
             // Push two files.
             byte[] a = "-- addon".repeat(100).getBytes(StandardCharsets.UTF_8);
@@ -87,6 +89,21 @@ class ServerFlowTest {
             List<ManifestEntry> man = List.of(
                     new ManifestEntry("Interface/AddOns/Foo/Foo.toc", a.length, Hashing.sha256Hex(a)),
                     new ManifestEntry("WTF/Account/X/SavedVariables/Foo.lua", b.length, Hashing.sha256Hex(b)));
+            // Declared size cannot authorize larger uploaded bytes or arbitrary pack objects.
+            var forged=List.of(new ManifestEntry("WTF/forged.lua",1,Hashing.sha256Hex(a)));
+            var forgedNeed=c.call(new Msg.PushBegin(rootId,"forever",null,false,forged,null,null,"Test PC"),Msg.PushNeed.class);
+            try(Wire forgedData=connect(port)) {
+                forgedData.call(new Msg.DataJoin(login.sessionId()),Msg.Ok.class);
+                var forgedPack=new PackWriter(PackKind.RAW,Codec.RAW,0);forgedPack.add("",Hashing.sha256Hex(a),a);byte[] bytes=forgedPack.build();
+                forgedData.sendBinary(forgedData.newRequestId(),new Msg.PackUpload(forgedNeed.pushId()),bytes,0,bytes.length);
+                assertEquals("integrity",assertThrows(ProtocolException.class,()->forgedData.read().message(Msg.Ok.class)).code());
+                forgedData.sendBinary(forgedData.newRequestId(),new Msg.FileUploadChunk(forgedNeed.pushId(),Hashing.sha256Hex(a),0,a.length,true,false),a,0,a.length);
+                assertThrows(ProtocolException.class,()->forgedData.read().message(Msg.Ok.class));
+                assertThrows(ProtocolException.class,()->forgedData.call(new Msg.ResumeQuery(forgedNeed.pushId(),Hashing.sha256Hex(b)),Msg.ResumeOffset.class));
+            }
+            c.call(new Msg.PushCancel(forgedNeed.pushId()),Msg.Ok.class);
+            // Duplicate paths and file/directory collisions are rejected before transfer.
+            assertThrows(ProtocolException.class,()->c.call(new Msg.PushBegin(rootId,"forever",null,false,List.of(man.getFirst(),man.getFirst()),null,null,"PC"),Msg.PushNeed.class));
             Msg.PushNeed need = c.call(new Msg.PushBegin(rootId, "forever", null, false, man, null, null, "Test PC"), Msg.PushNeed.class);
             assertEquals(2, need.missingHashes().size());
             assertEquals(2, need.newFiles().size());
@@ -132,6 +149,13 @@ class ServerFlowTest {
             assertTrue(ch.last());
             assertEquals(a.length - 10, lf.bodyLength());
 
+            // A physical hash shared inside an account does not grant access from a different flavor.
+            d.send(d.newRequestId(),new Msg.Fetch(rootId,"retail",List.of(Hashing.sha256Hex(a))));
+            assertThrows(ProtocolException.class,()->d.read().message(Msg.PackDownload.class));
+            try(Wire oldClient=connect(port)) {
+                var incompatible=oldClient.call(new Msg.Hello(1,"1.0.0",Codec.supported(),"old","old"));
+                assertEquals("version",incompatible.message(Msg.LoginFail.class).reason());
+            }
             // Accounts and invites.
             Msg.AccountInfo su = c.call(new Msg.AccountCreate("Super1", "superuser", null, "password2", null, null, 1, null), Msg.AccountInfo.class);
             assertEquals("superuser", su.role());
@@ -152,12 +176,37 @@ class ServerFlowTest {
             ProtocolException q = assertThrows(ProtocolException.class, () -> c2.call(new Msg.PushBegin(redeemed.id(), "forever", null, false, man, null, null, "PC2"), Msg.PushNeed.class));
             assertEquals("quota", q.code());
             c.call(new Msg.AccountDelete(redeemed.id(), "Partner"), Msg.Ok.class);
+            // Simultaneous single-use invite redemption creates exactly one account.
+            Msg.InviteCreated race=c.call(new Msg.InviteCreate("user",1,null),Msg.InviteCreated.class);InviteCode raceCode=InviteCode.decode(race.code());
+            var winners=new java.util.concurrent.atomic.AtomicInteger();java.util.List<java.util.concurrent.CompletableFuture<Void>> racers=new java.util.ArrayList<>();
+            for(String name:List.of("RaceOne","RaceTwo"))racers.add(java.util.concurrent.CompletableFuture.runAsync(()->{
+                try(Wire wire=connect(port)) {
+                    wire.call(new Msg.Hello(Version.PROTOCOL_VERSION,Version.APP_VERSION,Codec.supported(),name,name),Msg.HelloOk.class);
+                    try{wire.call(new Msg.InviteRedeem(raceCode.secret(),name,"password4",null,null),Msg.AccountInfo.class);winners.incrementAndGet();}
+                    catch(ProtocolException expected){}
+                }catch(Exception error){throw new RuntimeException(error);}
+            }));
+            java.util.concurrent.CompletableFuture.allOf(racers.toArray(java.util.concurrent.CompletableFuture[]::new)).join();assertEquals(1,winners.get());
+            // Quotas include reservations held by other active sessions.
+            Msg.AccountInfo limited=c.call(new Msg.AccountCreate("QuotaUser","user",null,"password5",null,1L,null,null),Msg.AccountInfo.class);
+            try(Wire one=connect(port);Wire two=connect(port)) {
+                for(Wire wire:List.of(one,two)){wire.call(new Msg.Hello(Version.PROTOCOL_VERSION,Version.APP_VERSION,Codec.supported(),"quota","quota"),Msg.HelloOk.class);wire.call(new Msg.LoginPassword("QuotaUser","password5"),Msg.LoginOk.class);}
+                byte[] part1=new byte[600_000],part2=new byte[600_000];part2[0]=1;
+                var req1=List.of(new ManifestEntry("WTF/one.lua",part1.length,Hashing.sha256Hex(part1)));
+                var req2=List.of(new ManifestEntry("WTF/two.lua",part2.length,Hashing.sha256Hex(part2)));
+                var pending=one.call(new Msg.PushBegin(limited.id(),"forever",null,false,req1,null,null,"one"),Msg.PushNeed.class);
+                assertEquals("quota",assertThrows(ProtocolException.class,()->two.call(new Msg.PushBegin(limited.id(),"forever",null,false,req2,null,null,"two"),Msg.PushNeed.class)).code());
+                one.call(new Msg.PushCancel(pending.pushId()),Msg.Ok.class);
+            }
             c.close();
             d.close();
             c2.close();
         } finally {
             Files.writeString(l.stopFlag(), "stop");
             t.join(20_000);
+            assertFalse(t.isAlive(), "Server did not stop");
+            assertTrue(java.util.Arrays.stream(java.util.logging.Logger.getLogger("").getHandlers())
+                    .noneMatch(h -> h instanceof java.util.logging.FileHandler), "Server log remains open");
         }
     }
 

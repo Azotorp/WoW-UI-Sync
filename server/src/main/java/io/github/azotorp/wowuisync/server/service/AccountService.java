@@ -31,22 +31,22 @@ public final class AccountService {
         this.storage = storage;
     }
 
-    public Msg.AccountInfo info(AccountRow a) throws SQLException {
+    public Msg.AccountInfo info(AccountRow a) throws SQLException, IOException {
         String ownerName = null;
         if (a.ownerId() != null) ownerName = ctx.db.accountById(a.ownerId()).map(AccountRow::username).orElse(null);
         ProfileStateRow last = ctx.db.lastPush(a.id());
         return new Msg.AccountInfo(a.id(), a.username(), a.role().wire(), a.ownerId(), ownerName, a.email(), a.authMethod(),
-                a.keyType(), a.quotaMb(), a.groupQuotaMb(), a.maxUsers(), ctx.db.storedBytes(a.id()),
+                a.keyType(), a.quotaMb(), a.groupQuotaMb(), a.maxUsers(), storage.statusUsage(a.id()),
                 last == null ? null : last.lastPushAt(), last == null ? null : last.lastPushDevice(), a.createdAt());
     }
 
-    public List<Msg.AccountInfo> accessibleInfos(AccountRow actor) throws SQLException {
+    public List<Msg.AccountInfo> accessibleInfos(AccountRow actor) throws SQLException, IOException {
         List<Msg.AccountInfo> out = new ArrayList<>();
         for (AccountRow a : Access.accessible(ctx.db, actor)) out.add(info(a));
         return out;
     }
 
-    public Msg.AccountListResp list(AccountRow actor) throws SQLException {
+    public Msg.AccountListResp list(AccountRow actor) throws SQLException, IOException {
         return new Msg.AccountListResp(accessibleInfos(actor));
     }
 
@@ -119,6 +119,7 @@ public final class AccountService {
     }
 
     public Msg.AccountInfo create(AccountRow actor, Msg.AccountCreate m) throws ApiException, SQLException, IOException {
+        synchronized(ctx.db) {
         Role role;
         try {
             role = Role.parse(m.role());
@@ -137,13 +138,14 @@ public final class AccountService {
         AccountRow row = createAccount(m.username(), role, actor.id(), m.email(), m.password(), m.publicKey(),
                 quota, maxUsers, groupQuota);
         return info(row);
+        }
     }
 
     private static Long normQuota(Long q) {
         return q == null || q < 0 ? null : q;
     }
 
-    public Msg.AccountInfo update(AccountRow actor, Msg.AccountUpdate m) throws ApiException, SQLException {
+    public Msg.AccountInfo update(AccountRow actor, Msg.AccountUpdate m) throws ApiException, SQLException, IOException {
         AccountRow t = ctx.db.accountById(m.accountId()).orElseThrow(() -> new ApiException(ErrorCodes.NOT_FOUND, "No such account."));
         boolean self = actor.id().equals(t.id());
         boolean manage = Access.canManage(actor, t);

@@ -42,6 +42,9 @@ public final class ServerDb implements AutoCloseable {
                     "CREATE TABLE profile_state (account_id TEXT NOT NULL, profile_id TEXT NOT NULL, fingerprint TEXT, "
                             + "stored_bytes INTEGER NOT NULL DEFAULT 0, last_push_at INTEGER, last_push_device TEXT, "
                             + "last_push_by_account TEXT, PRIMARY KEY(account_id, profile_id))"
+            }, new String[] {
+                "CREATE TABLE request_cooldowns (key TEXT PRIMARY KEY, next_at INTEGER NOT NULL)",
+                "CREATE TABLE verified_emails (account_id TEXT PRIMARY KEY, email TEXT NOT NULL, token_hash TEXT, expires_at INTEGER, verified INTEGER NOT NULL DEFAULT 0)"
             });
 
     public static final int SCHEMA_VERSION = MIGRATIONS.size();
@@ -63,7 +66,7 @@ public final class ServerDb implements AutoCloseable {
             s.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");
         }
         ServerDb db = new ServerDb(c);
-        db.migrate(file, backupDir, existed);
+        try { db.migrate(file, backupDir, existed); } catch(SQLException | IOException | RuntimeException e) { c.close();throw e; }
         return db;
     }
 
@@ -73,6 +76,7 @@ public final class ServerDb implements AutoCloseable {
             throw new SQLException("Database schema version " + v + " is newer than this server (" + SCHEMA_VERSION
                     + "). Use a newer server jar.");
         }
+        if(v>0) validateSchema(conn,v);
         if (v == SCHEMA_VERSION) return;
         if (existed && v > 0) {
             Files.createDirectories(backupDir);
@@ -93,6 +97,7 @@ public final class ServerDb implements AutoCloseable {
                 }
                 Logs.LOG.info("Database migrated to schema version " + (i + 1));
             }
+            validateSchema(conn,SCHEMA_VERSION);
             conn.commit();
         } catch (SQLException e) {
             conn.rollback();
@@ -100,6 +105,19 @@ public final class ServerDb implements AutoCloseable {
         } finally {
             conn.setAutoCommit(true);
         }
+    }
+
+    public static void validateSchema(Connection c,int version) throws SQLException {
+        if(version<1 || version>SCHEMA_VERSION)throw new SQLException("Unrecognized database schema "+version);
+        try(var s=c.createStatement();var r=s.executeQuery("PRAGMA integrity_check")) {
+            if(!r.next() || !"ok".equals(r.getString(1)))throw new SQLException("Database integrity check failed");
+        }
+        for(String q:List.of("SELECT "+ACCOUNT_COLS+",username_lc FROM accounts LIMIT 0",
+                "SELECT id,secret_hash FROM invites LIMIT 0","SELECT account_id FROM reset_codes LIMIT 0",
+                "SELECT ip FROM ip_failures LIMIT 0","SELECT account_id,profile_id,fingerprint FROM profile_state LIMIT 0"))
+            try(var s=c.createStatement();var r=s.executeQuery(q)) { /* recognized legacy tables */ }
+        if(version>=2) for(String q:List.of("SELECT key,next_at FROM request_cooldowns LIMIT 0","SELECT account_id,email,verified FROM verified_emails LIMIT 0"))
+            try(var s=c.createStatement();var r=s.executeQuery(q)) { /* recognized current tables */ }
     }
 
     public synchronized int schemaVersion() throws SQLException {
@@ -411,6 +429,7 @@ public final class ServerDb implements AutoCloseable {
 
     public synchronized void pruneIpFailures() throws SQLException {
         long now = System.currentTimeMillis();
+        exec("DELETE FROM request_cooldowns WHERE next_at<?",now-86_400_000L);
         exec("DELETE FROM ip_failures WHERE window_start<? AND (blocked_until IS NULL OR blocked_until<?)", now - 3_600_000L, now);
     }
 
@@ -457,6 +476,42 @@ public final class ServerDb implements AutoCloseable {
                         longOrNull(rs, 5), rs.getString(6), rs.getString(7));
             }
         }
+    }
+
+    public synchronized boolean claimCooldown(String key,long millis) throws SQLException {
+        long now=System.currentTimeMillis();
+        try(var p=conn.prepareStatement("INSERT INTO request_cooldowns(key,next_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET next_at=excluded.next_at WHERE next_at<=?")) {
+            p.setString(1,key);p.setLong(2,now+millis);p.setLong(3,now);return p.executeUpdate()==1;
+        }
+    }
+    public synchronized void setEmailToken(String id,String email,String hash,long expiry) throws SQLException {
+        exec("INSERT OR REPLACE INTO verified_emails(account_id,email,token_hash,expires_at,verified) VALUES (?,?,?,?,0)",id,email,hash,expiry);
+    }
+    public synchronized boolean confirmEmail(String id,String email,String hash) throws SQLException {
+        try(var p=conn.prepareStatement("UPDATE verified_emails SET verified=1,token_hash=NULL WHERE account_id=? AND email=? AND token_hash=? AND expires_at>?")) {
+            p.setString(1,id);p.setString(2,email);p.setString(3,hash);p.setLong(4,System.currentTimeMillis());return p.executeUpdate()==1;
+        }
+    }
+    public synchronized boolean emailVerified(String id,String email) throws SQLException {
+        try(var p=conn.prepareStatement("SELECT 1 FROM verified_emails WHERE account_id=? AND email=? AND verified=1")) {
+            p.setString(1,id);p.setString(2,email);try(var r=p.executeQuery()) { return r.next(); }
+        }
+    }
+    public synchronized void checkpoint(Path target) throws SQLException,IOException {
+        Files.createDirectories(target.getParent());
+        try(var stmt=conn.createStatement()) { stmt.execute("VACUUM INTO '"+target.toAbsolutePath().toString().replace("'","''")+"'"); }
+    }
+    public synchronized void integrity() throws SQLException {
+        try(var s=conn.createStatement();var r=s.executeQuery("PRAGMA integrity_check")) {
+            if(!r.next() || !"ok".equals(r.getString(1))) throw new SQLException("Database integrity check failed");
+        }
+    }
+    @FunctionalInterface public interface Transaction<T> { T run() throws Exception; }
+    public synchronized <T> T transaction(Transaction<T> action) throws Exception {
+        conn.setAutoCommit(false);
+        try { T result=action.run();conn.commit();return result; }
+        catch(Exception e) { conn.rollback();throw e; }
+        finally { conn.setAutoCommit(true); }
     }
 
     // ------------------------------------------------------------------ helpers

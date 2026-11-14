@@ -20,6 +20,15 @@ public record ClientPaths(Path root) {
         return new ClientPaths(base.resolve("wow-ui-sync-data"));
     }
 
+    /** Raw chunk staging is session-temporary; an apply journal protects it across restarts. */
+    public void cleanTransient() throws java.io.IOException {
+        Path operations=root.resolve("operations");
+        if(Files.isDirectory(operations))try(var entries=Files.list(operations)) {
+            if(entries.anyMatch(p->p.getFileName().toString().endsWith(".json")))return;
+        }
+        io.github.azotorp.wowuisync.client.local.FileOps.deleteTree(stagedObjects());
+        io.github.azotorp.wowuisync.client.local.FileOps.deleteTree(operations);
+    }
     public Path config() { return root.resolve("client.json"); }
     public Path db() { return root.resolve("client.db"); }
     public Path dbBackups() { return root.resolve("db-backups"); }

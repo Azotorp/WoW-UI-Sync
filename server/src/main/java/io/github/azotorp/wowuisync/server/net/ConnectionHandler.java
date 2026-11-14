@@ -48,7 +48,8 @@ public final class ConnectionHandler implements Runnable {
         try {
             socket.setSoTimeout(30_000);
             socket.setTcpNoDelay(true);
-            socket.startHandshake();
+            if(!ctx.handshakes.tryAcquire()) return;
+            try { socket.startHandshake(); } finally { ctx.handshakes.release(); }
             wire = new Wire(socket.getInputStream(), socket.getOutputStream(), socket);
             Frame first = wire.read();
             socket.setSoTimeout(IDLE_TIMEOUT_MS);
@@ -82,7 +83,7 @@ public final class ConnectionHandler implements Runnable {
                     "Please update WoW UI Sync to version " + Version.MIN_APP_VERSION + " or newer.", null, Version.MIN_APP_VERSION));
             return;
         }
-        if (hello.protocolVersion() > Version.PROTOCOL_VERSION && Version.PROTOCOL_VERSION < minPeerFor(hello)) {
+        if (hello.protocolVersion() > Version.PROTOCOL_VERSION) {
             wire.send(helloFrame.requestId(), new Msg.LoginFail("version",
                     "This server is outdated (version " + Version.APP_VERSION + "). Ask its owner to update it.", null, null));
             return;
@@ -94,6 +95,7 @@ public final class ConnectionHandler implements Runnable {
 
         Session session = null;
         AuthService.Challenge challenge = null;
+        int unauthenticatedRequests=0;
         try {
             while (!ctx.stopping()) {
                 Frame f = wire.read();
@@ -104,6 +106,7 @@ public final class ConnectionHandler implements Runnable {
                         continue;
                     }
                     if (session == null) {
+                        if(++unauthenticatedRequests>20) { wire.sendError(id,ErrorCodes.BUSY,"Too many unauthenticated requests");return; }
                         switch (f.type()) {
                             case LOGIN_PASSWORD -> {
                                 AuthService.Result r = svc.auth().loginPassword(ip, f.message(Msg.LoginPassword.class));
@@ -140,6 +143,29 @@ public final class ConnectionHandler implements Runnable {
                         wire.sendError(id, ErrorCodes.NOT_LOGGED_IN, "Your session ended because the account changed. Log in again.");
                         return;
                     }
+                    if(f.type()==MessageType.LOGIN_PASSWORD || f.type()==MessageType.LOGIN_KEY_BEGIN || f.type()==MessageType.LOGIN_KEY_PROOF) {
+                        AuthService.Result result=null;
+                        if(f.type()==MessageType.LOGIN_PASSWORD) {
+                            var m=f.message(Msg.LoginPassword.class);
+                            if(!actor.username().equalsIgnoreCase(m.username()))throw new ApiException(ErrorCodes.FORBIDDEN,"Reauthenticate the current account");
+                            result=svc.auth().loginPassword(ip,m);
+                        } else if(f.type()==MessageType.LOGIN_KEY_BEGIN) {
+                            var m=f.message(Msg.LoginKeyBegin.class);
+                            if(!actor.username().equalsIgnoreCase(m.username()))throw new ApiException(ErrorCodes.FORBIDDEN,"Reauthenticate the current account");
+                            Object response=svc.auth().beginKey(ip,m);
+                            if(response instanceof AuthService.Result r)result=r;
+                            else{challenge=(AuthService.Challenge)response;wire.send(id,new Msg.LoginKeyChallenge(challenge.nonce(),challenge.sessionId()));continue;}
+                        } else {
+                            if(challenge==null)throw new ApiException(ErrorCodes.BAD_REQUEST,"No reauthentication challenge");
+                            result=svc.auth().finishKey(ip,challenge,f.message(Msg.LoginKeyProof.class));challenge=null;
+                        }
+                        if(result.fail()!=null)wire.send(id,result.fail());
+                        else if(!actor.id().equals(result.account().id()))throw new ApiException(ErrorCodes.FORBIDDEN,"Account mismatch");
+                        else{session.reauthenticated();wire.send(id,new Msg.Ok("Credential verified"));}
+                        continue;
+                    }
+                    if(java.util.Set.of(MessageType.ACCOUNT_UPDATE,MessageType.ACCOUNT_SET_CREDENTIAL,MessageType.ACCOUNT_DELETE,MessageType.INVITE_CREATE,MessageType.INVITE_REVOKE,MessageType.EMAIL_VERIFY_REQUEST).contains(f.type()) && !session.freshCredential())
+                        throw new ApiException(ErrorCodes.FORBIDDEN,"Verify your current credential again by reopening Accounts or My account");
                     dispatchControl(wire, f, session, actor);
                 } catch (ApiException e) {
                     wire.sendError(id, e.code(), e.getMessage());
@@ -154,7 +180,7 @@ public final class ConnectionHandler implements Runnable {
                     wire.sendError(id, ErrorCodes.INTERNAL, "Server database error.");
                 } catch (RuntimeException e) {
                     Logs.LOG.log(Level.WARNING, "Request " + f.type() + " failed: " + e.getMessage(), e);
-                    wire.sendError(id, ErrorCodes.INTERNAL, "Server error: " + e.getMessage());
+                    wire.sendError(id, ErrorCodes.INTERNAL, "Server request failed. See the server log for details.");
                 }
             }
             if (ctx.stopping()) wire.sendError(0, ErrorCodes.SHUTTING_DOWN, "The server is shutting down.");
@@ -206,6 +232,13 @@ public final class ConnectionHandler implements Runnable {
     private void dispatchControl(Wire wire, Frame f, Session s, AccountRow actor) throws Exception {
         int id = f.requestId();
         switch (f.type()) {
+            case EMAIL_VERIFY_REQUEST -> wire.send(id,svc.reset().verificationRequest(actor));
+            case EMAIL_VERIFY_CONFIRM -> wire.send(id,svc.reset().verificationConfirm(actor,f.message(Msg.EmailVerifyConfirm.class)));
+            case SNAPSHOT_LIST -> wire.send(id,svc.sync().snapshotList(actor,f.message(Msg.SnapshotList.class)));
+            case SNAPSHOT_GET -> wire.send(id,svc.sync().snapshotGet(actor,f.message(Msg.SnapshotGet.class)));
+            case SNAPSHOT_UPDATE -> wire.send(id,svc.sync().snapshotUpdate(actor,f.message(Msg.SnapshotUpdate.class)));
+            case SNAPSHOT_RETENTION -> wire.send(id,svc.sync().snapshotRetention(actor,f.message(Msg.SnapshotRetention.class)));
+            case SNAPSHOT_VERIFY -> wire.send(id,svc.sync().snapshotVerify(actor,f.message(Msg.SnapshotVerify.class)));
             case STATUS_REQ -> wire.send(id, svc.sync().status(actor, f.message(Msg.StatusReq.class)));
             case MANIFEST_GET -> wire.send(id, svc.sync().manifest(actor, f.message(Msg.ManifestGet.class)));
             case PUSH_BEGIN -> wire.send(id, svc.sync().pushBegin(actor, s, f.message(Msg.PushBegin.class)));
@@ -277,7 +310,7 @@ public final class ConnectionHandler implements Runnable {
                     wire.sendError(id, ErrorCodes.INTERNAL, "Server database error.");
                 } catch (RuntimeException e) {
                     Logs.LOG.log(Level.WARNING, "Data request " + f.type() + " failed: " + e.getMessage(), e);
-                    wire.sendError(id, ErrorCodes.INTERNAL, "Server error: " + e.getMessage());
+                    wire.sendError(id, ErrorCodes.INTERNAL, "Server request failed. See the server log for details.");
                 }
             }
         } finally {

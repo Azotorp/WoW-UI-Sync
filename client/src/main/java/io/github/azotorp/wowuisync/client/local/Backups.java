@@ -55,51 +55,7 @@ public final class Backups {
     /** Makes a full backup. Checks free space first. */
     public static BackupRecord create(ClientDb db, Path flavor, String reason, String sourceAccount, Progress progress)
             throws IOException, SQLException, UserException {
-        String account = ClientApp.safeName(appliedAccount(db, flavor));
-        Path iface = flavor.resolve("Interface");
-        Path wtf = flavor.resolve("WTF");
-        FileOps.TreeSize si = FileOps.size(iface);
-        FileOps.TreeSize sw = FileOps.size(wtf);
-        long need = si.bytes() + sw.bytes();
-        long free = FileOps.usableSpace(flavor);
-        if (need + (64L << 20) > free) {
-            throw new UserException("Not enough free disk space for a backup: it needs " + Sizes.human(need) + " but only "
-                    + Sizes.human(free) + " is free on that drive. Delete old backups (Backups) or free up space.");
-        }
-        LocalDateTime now = LocalDateTime.now();
-        String suffix = account + "_" + now.format(STAMP);
-        Path bi = flavor.resolve("Interface_" + suffix);
-        Path bw = flavor.resolve("WTF_" + suffix);
-        int n = 1;
-        while (Files.exists(bi) || Files.exists(bw)) {
-            // Two backups in the same second: wait a moment for a new timestamp.
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IOException("Interrupted");
-            }
-            now = LocalDateTime.now();
-            suffix = account + "_" + now.format(STAMP);
-            bi = flavor.resolve("Interface_" + suffix);
-            bw = flavor.resolve("WTF_" + suffix);
-            if (++n > 5) throw new IOException("Could not choose a backup folder name.");
-        }
-        long total = si.files() + sw.files();
-        try {
-            final long ifFiles = si.files();
-            FileOps.copyTree(iface, bi, (f, b) -> { if (progress != null) progress.update("Backing up Interface", f, total); });
-            FileOps.copyTree(wtf, bw, (f, b) -> { if (progress != null) progress.update("Backing up WTF", ifFiles + f, total); });
-        } catch (IOException e) {
-            FileOps.deleteTree(bi);
-            FileOps.deleteTree(bw);
-            throw new IOException("The backup failed and was removed: " + e.getMessage(), e);
-        }
-        BackupRecord rec = new BackupRecord(flavor.toString(), suffix, account,
-                now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(), reason, sourceAccount, total, need);
-        db.addBackup(rec);
-        ClientLog.LOG.info("Backup created: " + suffix + " (" + reason + ")");
-        return rec;
+        throw new UserException("Local folder backups are retired. Use a server snapshot.");
     }
 
     /** Backups for a flavor, newest first: database records plus folders found on disk (reason "unknown"). */
@@ -129,7 +85,7 @@ public final class Backups {
             }
         }
         // Records whose folders were removed by hand are dropped.
-        for (String s : fromDb.keySet()) if (!bySuffix.containsKey(s)) db.deleteBackup(flavor.toString(), s);
+        for (String suffix : fromDb.keySet()) bySuffix.putIfAbsent(suffix,fromDb.get(suffix));
         List<BackupRecord> out = new ArrayList<>(bySuffix.values());
         out.sort((a, b) -> Long.compare(b.createdAt(), a.createdAt()));
         return out;
@@ -148,16 +104,7 @@ public final class Backups {
      */
     public static void restore(ClientDb db, Path flavor, String profileId, BackupRecord b, Progress progress)
             throws IOException, SQLException, UserException {
-        Path bi = flavor.resolve("Interface_" + b.suffix());
-        Path bw = flavor.resolve("WTF_" + b.suffix());
-        if (!Files.isDirectory(bi) && !Files.isDirectory(bw)) throw new UserException("That backup's folders are missing.");
-        create(db, flavor, REASON_RESTORE, null, progress);
-        if (progress != null) progress.update("Restoring", 0, -1);
-        FileOps.mirror(bi, flavor.resolve("Interface"), (f, by) -> { if (progress != null) progress.update("Restoring Interface", f, -1); });
-        FileOps.mirror(bw, flavor.resolve("WTF"), (f, by) -> { if (progress != null) progress.update("Restoring WTF", f, -1); });
-        db.setApplied(flavor.toString(), b.account(), null, null);
-        db.clearBases(profileId);
-        ClientLog.LOG.info("Restored backup " + b.suffix());
+        throw new UserException("Legacy backups are read-only. Import through a reviewed server snapshot before restoring.");
     }
 
     public static String describe(BackupRecord b) {

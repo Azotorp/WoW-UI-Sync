@@ -119,6 +119,7 @@ public final class ConnectionsDialog extends JDialog {
             if (r != null) {
                 reload();
                 list.setSelectedValue(r, true);
+                if(app.connected()) dispose();
             }
         });
         JButton forgot = new JButton("Forgot password…");

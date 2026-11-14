@@ -30,6 +30,11 @@ public final class MyAccountDialog {
         JPanel b = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         b.add(email);
         b.add(cred);
+        JButton verify=new JButton("Verify recovery email");b.add(verify);
+        verify.addActionListener(e->BusyDialog.run(owner,"Sending verification",d->()->app.connection().call(new Msg.EmailVerifyRequest(),Msg.Ok.class),r->{
+            String code=Dialogs.askText(owner,r.message()+" Enter code:","");
+            if(code!=null)BusyDialog.run(owner,"Verifying email",d->()->app.connection().call(new Msg.EmailVerifyConfirm(code),Msg.Ok.class),ok->Dialogs.info(owner,ok.message()));
+        }));
         Forms f = new Forms()
                 .add("Username:", new JLabel(me.username()))
                 .add("Role:", new JLabel(me.role()))

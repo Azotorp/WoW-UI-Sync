@@ -1,0 +1,21 @@
+Nov 13, 2026 11:11:42 PM io.github.azotorp.wowuisync.client.sync.Scanner scan
+INFO: Scan Statistics[discovered=10001, cacheHits=0, hashedFiles=10001, bytesHashed=94502912, discoveryNanos=98549883, cacheNanos=4284468, metadataNanos=29370918, hashingNanos=1569940200, manifestNanos=21164023, persistenceNanos=130465249, elapsedNanos=2187333453] verified=false
+first files=10001 ms=2233.844 rchar=182253014 wchar=23613046 fingerprint=0283776718f7ef1dddda859c403aa5d59311d5a958ce50c32b5ae21cdccf7b34
+Nov 13, 2026 11:11:42 PM io.github.azotorp.wowuisync.client.sync.Scanner scan
+INFO: Scan Statistics[discovered=10001, cacheHits=10001, hashedFiles=0, bytesHashed=0, discoveryNanos=86165608, cacheNanos=172317, metadataNanos=46863838, hashingNanos=0, manifestNanos=9310849, persistenceNanos=10354173, elapsedNanos=194700524] verified=false
+unchanged files=10001 ms=196.045 rchar=228 wchar=338 fingerprint=0283776718f7ef1dddda859c403aa5d59311d5a958ce50c32b5ae21cdccf7b34
+Nov 13, 2026 11:11:42 PM io.github.azotorp.wowuisync.client.sync.Scanner scan
+INFO: Scan Statistics[discovered=10001, cacheHits=10001, hashedFiles=0, bytesHashed=0, discoveryNanos=84476975, cacheNanos=194406416, metadataNanos=53779351, hashingNanos=0, manifestNanos=19483551, persistenceNanos=7397973, elapsedNanos=406299552] verified=false
+restart files=10001 ms=409.207 rchar=25892869 wchar=349 fingerprint=0283776718f7ef1dddda859c403aa5d59311d5a958ce50c32b5ae21cdccf7b34
+Nov 13, 2026 11:11:42 PM io.github.azotorp.wowuisync.client.sync.Scanner scan
+INFO: Scan Statistics[discovered=10001, cacheHits=10000, hashedFiles=1, bytesHashed=7, discoveryNanos=93262562, cacheNanos=317984, metadataNanos=50672833, hashingNanos=510270, manifestNanos=18846493, persistenceNanos=33777839, elapsedNanos=244741020] verified=false
+one-changed files=10001 ms=245.663 rchar=852459 wchar=4503 fingerprint=0a279ac3ecb972b0a925d1b4a7c85bea0a19527922f109a364f353bcba235f4b
+Nov 13, 2026 11:11:43 PM io.github.azotorp.wowuisync.client.sync.Scanner scan
+INFO: Scan Statistics[discovered=10000, cacheHits=9999, hashedFiles=1, bytesHashed=7, discoveryNanos=93820103, cacheNanos=186037, metadataNanos=43967925, hashingNanos=192186, manifestNanos=5207652, persistenceNanos=18020324, elapsedNanos=201440217] verified=false
+one-deleted files=10000 ms=202.375 rchar=242 wchar=8582 fingerprint=1a040adcc695fd753b88befa1df4d6f3c325cb4115085301fb34bee7e704c5de
+Nov 13, 2026 11:11:43 PM io.github.azotorp.wowuisync.client.sync.Scanner scan
+INFO: Scan Statistics[discovered=10001, cacheHits=9999, hashedFiles=2, bytesHashed=10, discoveryNanos=69663625, cacheNanos=159317, metadataNanos=49878348, hashingNanos=717118, manifestNanos=18172570, persistenceNanos=30372210, elapsedNanos=215426014] verified=false
+new-addon files=10001 ms=216.202 rchar=501 wchar=8587 fingerprint=34ce75b5fd3e2ba42bd809f297f9b25d128a9c9a451dce962ab0cad6cee97962
+Nov 13, 2026 11:11:43 PM io.github.azotorp.wowuisync.client.sync.Scanner scan
+INFO: Scan Statistics[discovered=10001, cacheHits=9999, hashedFiles=2, bytesHashed=10, discoveryNanos=92136356, cacheNanos=195401, metadataNanos=48069854, hashingNanos=559073, manifestNanos=16997942, persistenceNanos=8620010, elapsedNanos=213477534] verified=false
+no-change files=10001 ms=214.728 rchar=248 wchar=343 fingerprint=34ce75b5fd3e2ba42bd809f297f9b25d128a9c9a451dce962ab0cad6cee97962

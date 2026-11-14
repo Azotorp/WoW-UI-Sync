@@ -37,6 +37,15 @@ public enum MessageType {
     PACK_DOWNLOAD(43, Msg.PackDownload.class, true),
     FILE_DOWNLOAD_CHUNK(44, Msg.FileDownloadChunk.class, true),
 
+    SNAPSHOT_LIST(80, Msg.SnapshotList.class),
+    SNAPSHOT_LIST_RESP(81, Msg.SnapshotListResp.class),
+    SNAPSHOT_GET(82, Msg.SnapshotGet.class),
+    SNAPSHOT_UPDATE(83, Msg.SnapshotUpdate.class),
+    SNAPSHOT_VERIFY(84, Msg.SnapshotVerify.class),
+    SNAPSHOT_RETENTION(87,Msg.SnapshotRetention.class),
+    EMAIL_VERIFY_REQUEST(85, Msg.EmailVerifyRequest.class),
+    EMAIL_VERIFY_CONFIRM(86, Msg.EmailVerifyConfirm.class),
+
     ACCOUNT_LIST(50, Msg.AccountList.class),
     ACCOUNT_LIST_RESP(51, Msg.AccountListResp.class),
     ACCOUNT_CREATE(52, Msg.AccountCreate.class),

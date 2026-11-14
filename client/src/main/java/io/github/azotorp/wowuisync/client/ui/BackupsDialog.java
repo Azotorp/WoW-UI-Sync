@@ -44,15 +44,31 @@ public final class BackupsDialog extends JDialog {
             lab.setForeground(sel ? l.getSelectionForeground() : l.getForeground());
             return lab;
         });
+        JButton imported=new JButton("Import to server snapshots");
+        imported.addActionListener(e->{
+            BackupRecord selected=list.getSelectedValue();if(selected==null)return;
+            if(!app.connected()){Dialogs.info(this,"Connect to import into a verified server snapshot.");return;}
+            BusyDialog.run(this,"Importing legacy backup",d->()->{
+                var scan=io.github.azotorp.wowuisync.client.sync.LegacyImport.scan(app,flavor,selected);
+                var ops=new io.github.azotorp.wowuisync.client.sync.SyncOps(app);
+                var result=ops.recoverySnapshot(app.connection(),flavor,scan,new io.github.azotorp.wowuisync.client.sync.TransferControl(),new io.github.azotorp.wowuisync.client.sync.TransferEngine.Sink(){
+                    public void stats(io.github.azotorp.wowuisync.client.sync.TransferStats s){d.update("Importing",s.bytesDone.get(),s.bytesTotal);}public void connectionLost(String m){throw new IllegalStateException(m);}
+                },"legacy_import");
+                String own=app.login().accountId();app.connection().call(new io.github.azotorp.wowuisync.common.protocol.Msg.SnapshotVerify(own,flavor.profileId(),result.snapshotId()),io.github.azotorp.wowuisync.common.protocol.Msg.Ok.class);
+                return result;
+            },r->Dialogs.info(this,"Verified server snapshot "+r.snapshotId()+" created in your account. Legacy folders were preserved."));
+        });
         JButton manual = new JButton("Manual backup");
         JButton restore = new JButton("Restore…");
         JButton delete = new JButton("Delete…");
         JButton close = new JButton("Close");
+        manual.setVisible(false);restore.setVisible(false);delete.setVisible(false);
         manual.addActionListener(e -> manual());
         restore.addActionListener(e -> restore());
         delete.addActionListener(e -> delete());
         close.addActionListener(e -> dispose());
         JPanel b = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        b.add(imported);
         b.add(manual);
         b.add(restore);
         b.add(delete);
@@ -61,8 +77,8 @@ public final class BackupsDialog extends JDialog {
         sp.setPreferredSize(new Dimension(620, 320));
         JPanel root = new JPanel(new BorderLayout(0, 8));
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        root.add(new JLabel("<html>Full copies of Interface and WTF kept inside " + Dialogs.escape(flavor.path().toString())
-                + ". WoW ignores these folders. Backups are kept until you delete them.</html>"), BorderLayout.NORTH);
+        root.add(new JLabel("<html>Read-only legacy backup inventory inside " + Dialogs.escape(flavor.path().toString())
+                + ". These folders are preserved; new recovery points are server snapshots.</html>"), BorderLayout.NORTH);
         root.add(sp, BorderLayout.CENTER);
         root.add(b, BorderLayout.SOUTH);
         setContentPane(root);
