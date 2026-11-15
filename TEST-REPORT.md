@@ -4,7 +4,7 @@ Date: 2026-11-14 (America/Vancouver). Baseline: main `4076848`, restored 1.0.0 i
 
 ## Results
 
-- JDK 21.0.13 / Maven 3.9.9, Linux: **31 Java tests passed, zero failures/errors/skips** using freshly generated synthetic key fixtures. Normal builds skip the optional supplied-key test unless its property is supplied; no private keys are packaged.
+- JDK 21.0.13 / Maven 3.9.9, Linux: **37 Java tests: 36 passed, zero failures/errors, one Windows-only native-copy test skipped locally** using freshly generated synthetic key fixtures. Normal builds skip the optional supplied-key test unless its property is supplied; no private keys are packaged.
 - **35 Python service-tool tests passed**: names/quoting, atomic writes/backups, occupied port, overlapping stores, existing-service refusal without writes, invalid edited-unit preservation, non-root guidance, cross-process store lock, failed-update rollback, uninstall preserving data/other units.
 - Baseline 1.0.0 builds/tests pass. New shaded client/server JARs have executable manifests and version `1.2.0-alpha`; both version entry points launch with Java 21.
 - Live loopback TLS integration: authenticate, push/commit, Pull on a second client, explicit local-only removal, data-only Push preserving unrelated server content, non-folder-named TOC SavedVariables transfer, incremental update, data-only Pull, canceled Pull before apply, marker-only fresh-install Pull creating Interface/WTF, empty Push refusal, protocol-1 rejection, stale full-Push rejection, roles/quotas/account isolation from existing server tests.
@@ -12,6 +12,18 @@ Date: 2026-11-14 (America/Vancouver). Baseline: main `4076848`, restored 1.0.0 i
 - Backup tests cover all four checkbox combinations, absent folders/restoring absent state, cancellation without live changes, insufficient space using a sparse synthetic file, corrupt-snapshot refusal, legacy coverage and generation replacement.
 - Headless Swing table test confirms numeric sorting, zero numeric size and disabled Addon/enabled Include Data for data-only rows.
 - Store compatibility smoke: create a synthetic key-authenticated store with the baseline JAR, open it with 1.2, start/stop the 1.2 server on an independent loopback port, then read it again with 1.0. Current-manifest fingerprint, synthetic public-key hash and TLS fingerprint were identical before/after. Server schema remains version 1.
+
+## Native folder backup and progress follow-up
+
+Windows now uses one Robocopy process per selected top-level backup category, with bounded workers, /E, COPY:DAT/DCOPY:DAT, /XJ and zero retries. No move, mirror or deletion options are used. Return codes 0–7 proceed to independent verification; >=8 fails. Native cancellation forcibly stops and joins the child before partial-stage cleanup. Other platforms use parallel Java copy workers. Hash verification remains mandatory: cached source hashes are reused only when size, exact mtime, identity/change metadata and verification age remain valid. Destinations are hashed in parallel; uncached/excluded files also get a source hash. Source changes, missing/extra paths and hash mismatches fail before snapshot publication. Workers are joined before cleanup.
+
+Backup, native copy, verification, download and apply now have clean phase boundaries, counts/data/rate rows and a separate normalized path row. Native-copy counts are indeterminate until the OS command completes rather than guessed. UI updates are throttled to about 10 Hz. Scan summary/metrics are cleared at the phase transition. Manual backup/restore dialogs also separate the path.
+
+Linux results: 37 Java tests, 36 passing and one Windows-only native-copy test skipped; 35 Python helper tests unchanged. New tests cover safe native arguments/return-code mapping, cached+excluded files and restore, cancellation without publication, source modification detection, and clean backup progress after scanning. Actual Windows Robocopy/Unicode-path copy is an automated Windows CI test, not a locally claimed success. Test-only cleanup closes server log handlers and client DBs on Windows; production server code/protocol remain unchanged.
+
+Synthetic Linux corpus (10,010 files / 51,445,760 bytes, scan cache populated outside backup timer): old backup 2.536235 s; new portable parallel backup 0.772378 s. OS cache is warm; shared-host load varies. See benchmarks/BackupBenchmark.java and benchmarks/backup-progress-results.csv. This does not predict Windows/large-install timing and is not a guarantee that a 3.7 GB backup completes in one second. Native Windows timing on the user's hardware still needs retest. Robocopy flags and exit handling follow [Microsoft's command reference](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/robocopy).
+
+The new client-only backupfix ZIP requires replacing/rerunning only the client JAR in its existing directory, preserving adjacent wow-ui-sync-data and local backups. No server JAR, service restart, reinstall or data migration is required.
 
 ## Client scan/progress follow-up
 

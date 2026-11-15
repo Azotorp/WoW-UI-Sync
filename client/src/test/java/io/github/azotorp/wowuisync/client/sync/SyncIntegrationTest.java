@@ -193,8 +193,9 @@ class SyncIntegrationTest {
             Files.writeString(l.stopFlag(), "stop");
             st.join(20_000);
             for(var client:clients)client.db().close();
-            for(var handler:io.github.azotorp.wowuisync.server.util.Logs.LOG.getHandlers()){
-                handler.close();io.github.azotorp.wowuisync.server.util.Logs.LOG.removeHandler(handler);
+            var rootLogger=java.util.logging.Logger.getLogger("");
+            for(var handler:rootLogger.getHandlers())if(handler instanceof java.util.logging.FileHandler){
+                handler.close();rootLogger.removeHandler(handler);
             }
         }
     }

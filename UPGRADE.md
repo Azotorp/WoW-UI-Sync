@@ -82,9 +82,9 @@ sudo systemctl status wow-ui-sync.service --no-pager
 
 `cp` over an existing target retains its owner/mode. Keep the `.before-1.2` copy and your existing backups. Preserve the **whole data directory** for identity and content: `server.json`, `wowuisync.db` and SQLite sidecars when present, `keys/`, `tls/keystore.p12`, `accounts/` and other stored files. The optional keys are application OpenSSH **public keys**, not server shell access; the TLS keystore is a separate identity. Do not regenerate either during update.
 
-## Client scan/progress follow-up
+## Client backup/progress follow-up
 
-For `WoW-UI-Sync-Client-1.2.0-alpha-scanfix.zip`, let an active transfer finish, close the client, and replace **only** its client JAR in the directory you already use. Preserve its adjacent `wow-ui-sync-data` directory so the completed scan cache and connections are reused. Launch the replacement client. The existing 1.2 server JAR, service, data and protocol need no changes or restart. No migration or new installation is required; the 1.0 server remains a separate incompatible protocol version.
+For `WoW-UI-Sync-Client-1.2.0-alpha-backupfix.zip`, let an active transfer finish, close the client, and replace **only** its client JAR in the directory you already use. Preserve its adjacent `wow-ui-sync-data` directory so the completed scan cache and connections are reused. Launch the replacement client. The existing 1.2 server JAR, service, data and protocol need no changes or restart. No migration or new installation is required; the 1.0 server remains a separate incompatible protocol version.
 
 ## Client update is separate
 

@@ -40,6 +40,8 @@ Selected file folders synchronize their source file set, including removing obso
 
 ## Backups and recovery
 
+Windows backups use native per-folder Robocopy with bounded workers, followed by parallel content verification. Validated scan hashes avoid hashing unchanged source files again; excluded/uncached data is still hashed. Linux/macOS use parallel Java copies. Failed/canceled copy or verification never publishes a successful snapshot. Copy, verification and download have separate progress phases with counts and file path on separate rows.
+
 New backups are verified, immutable snapshots under `<version>/.wus-backups/<timestamped-id>/`. A completed `backup.json` records selected categories and file hashes. Incomplete `.partial-*` folders are not listed as successful snapshots. Nothing renames/moves a live folder to create a backup. Failure, cancellation or insufficient space prevents Pull from applying changes.
 
 Use **Backups → Restore** to verify a snapshot, back up the current selected categories, and replace only the categories in that snapshot. A selected category that was absent is restored as absent; an unselected category remains untouched. Legacy `Interface_<account>_<timestamp>` / `WTF_<account>_<timestamp>` backups remain readable; only present legacy categories are restored.
@@ -48,7 +50,7 @@ Downloads stage before live writes. Changed local files or server manifests afte
 
 ## Client scan/progress update
 
-The `WoW-UI-Sync-Client-1.2.0-alpha-scanfix.zip` follow-up updates only the client. Finish any current transfer, close the client, replace its JAR in the **same directory**, preserve the adjacent `wow-ui-sync-data` folder, and reopen it. Existing completed scan-cache rows remain valid; running from a new directory without that folder starts a cold cache. No server JAR replacement, service restart or data migration is needed. See CLIENT-UPDATE.md.
+The `WoW-UI-Sync-Client-1.2.0-alpha-backupfix.zip` follow-up updates only the client. Finish any current transfer, close the client, replace its JAR in the **same directory**, preserve the adjacent `wow-ui-sync-data` folder, and reopen it. Existing completed scan-cache rows remain valid; running from a new directory without that folder starts a cold cache. No server JAR replacement, service restart or data migration is needed. See CLIENT-UPDATE.md.
 
 ## Scan cache and progress
 

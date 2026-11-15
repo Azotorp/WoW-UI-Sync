@@ -1,3 +1,7 @@
+## Native folder backup and clean backup progress
+
+Replaced serial source-hash/copy/destination-hash with native Windows folder copy or parallel Java copy, then cached parallel verification. Backup/restore/apply paths are separated from counts, and scan summaries are cleared. Synthetic Linux backup 2.536→0.772 s; actual Windows performance pending. Client-only update.
+
 ## Client scan/progress follow-up
 
 Separated file path from scan statistics, restored the original bounded concurrency, reused worker buffers and gated Unix timestamps by actual filesystem support. All 31 Java tests pass, including cache-hit and rendered progress-layout regression checks. Server protocol and installed server binaries stay unchanged.
