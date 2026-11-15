@@ -166,6 +166,9 @@ class ServerFlowTest {
         } finally {
             Files.writeString(l.stopFlag(), "stop");
             t.join(20_000);
+            for(var handler:io.github.azotorp.wowuisync.server.util.Logs.LOG.getHandlers()){
+                handler.close();io.github.azotorp.wowuisync.server.util.Logs.LOG.removeHandler(handler);
+            }
         }
     }
 

@@ -260,9 +260,9 @@ final class SyncController {
         }
         w.progress.phase("Backing up, then downloading…");
         Bg.run(() -> ops.pullApply(c.conn(), c.account(), c.flavor(), scan, plan, control, sink(),
-                (what, f, t) -> {
-                    if (t > 0) w.progress.count(what, f, t);
-                    else w.progress.phase(what + "…");
+                new io.github.azotorp.wowuisync.client.local.Backups.Progress() {
+                    public void update(String phase,long done,long total){w.progress.fileOperation(phase,"",done,total,0,-1);}
+                    public void file(String phase,String path,long done,long total,long bytes,long totalBytes){w.progress.fileOperation(phase,path,done,total,bytes,totalBytes);}
                 }, backupInterface, backupWtf), addonsChanged -> {
             done("Pull complete.");
             app.fire();

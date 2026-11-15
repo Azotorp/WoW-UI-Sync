@@ -113,7 +113,7 @@ public final class AddonsDialog extends JDialog {
                 : "Delete the saved data of " + a.group().displayName() + " (" + a.dataFiles().size() + " files across all characters)?";
         if (!Dialogs.confirmWarning(this, what + "\n\nA full backup is made first.")) return;
         BusyDialog.run(this, addon ? "Deleting addon" : "Deleting data", d -> () -> {
-            Backups.create(app.db(), flavor.path(), Backups.REASON_ADDON_DELETE, null, d::update);
+            Backups.create(app.db(), flavor.path(), Backups.REASON_ADDON_DELETE, null, d.progress());
             if (addon) AddonManager.deleteAddon(flavor.path(), a);
             else AddonManager.deleteData(flavor.path(), a);
             return true;

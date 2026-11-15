@@ -82,7 +82,7 @@ public final class BackupsDialog extends JDialog {
     }
 
     private void manual() {
-        BusyDialog.run(this, "Backing up", d -> () -> Backups.create(app.db(), flavor.path(), Backups.REASON_MANUAL, null, d::update),
+        BusyDialog.run(this, "Backing up", d -> () -> Backups.create(app.db(), flavor.path(), Backups.REASON_MANUAL, null, d.progress()),
                 r -> {
                     reload();
                     Dialogs.info(this, "Backup created: " + Backups.describe(r));
@@ -96,7 +96,7 @@ public final class BackupsDialog extends JDialog {
         if (!Dialogs.confirmWarning(this, "Restore this backup?\n\n" + Backups.describe(b)
                 + "\n\nYour current Interface and WTF are backed up first, then made to match this backup.")) return;
         BusyDialog.run(this, "Restoring", d -> () -> {
-            Backups.restore(app.db(), flavor.path(), flavor.profileId(), b, d::update);
+            Backups.restore(app.db(), flavor.path(), flavor.profileId(), b, d.progress());
             return true;
         }, ok -> {
             restored = true;

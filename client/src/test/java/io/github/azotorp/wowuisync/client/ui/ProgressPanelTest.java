@@ -42,5 +42,16 @@ class ProgressPanelTest {
             p.done("Scan complete");
         });
         SwingUtilities.invokeAndWait(()->assertEquals(" ",label(panel[0],"currentFile").getText()));
+    }    @Test void backupPhaseClearsScanSummaryAndKeepsPathSeparate() throws Exception {
+        ProgressPanel[] panel={null};
+        SwingUtilities.invokeAndWait(()->{var p=panel[0]=new ProgressPanel();p.begin("Pull",true);p.scanMetrics(36186,0,0,2.397,-1,8);p.note("Old scan summary");p.currentFile("old.lua");p.phase("Backing up");});
+        SwingUtilities.invokeAndWait(()->{var p=panel[0];assertEquals(" ",label(p,"dataStatistics").getText());assertEquals(" ",label(p,"rateStatistics").getText());assertEquals(" ",label(p,"currentFile").getText());p.fileOperation("Backing up","Interface/AddOns/Example/file.lua",2148,36387,100,1000);});
+        SwingUtilities.invokeAndWait(()->{
+            var p=panel[0];assertEquals("Files: 2148 of 36387",label(p,"fileStatistics").getText());
+            assertEquals("Interface/AddOns/Example/file.lua",label(p,"currentFile").getText());
+            assertFalse(label(p,"dataStatistics").getText().contains("cache"));
+            assertFalse(label(p,"fileStatistics").getText().contains("Interface"));
+        });
     }
+
 }

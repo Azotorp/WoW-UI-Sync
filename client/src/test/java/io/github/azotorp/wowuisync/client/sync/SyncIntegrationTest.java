@@ -52,12 +52,13 @@ class SyncIntegrationTest {
         Files.write(p, b);
     }
 
+    private final java.util.List<ClientApp> clients=new java.util.ArrayList<>();
     private ClientApp client(String name) throws Exception {
         ClientPaths paths = new ClientPaths(dir.resolve(name + "-data"));
         ClientConfig cfg = ClientConfig.load(paths.config());
         cfg.deviceNickname = name;
         cfg.installRoot = dir.resolve(name + "-wow").toString();
-        return new ClientApp(paths, cfg, ClientDb.open(paths.db(), paths.dbBackups()));
+        var app=new ClientApp(paths, cfg, ClientDb.open(paths.db(), paths.dbBackups()));clients.add(app);return app;
     }
 
     @Test
@@ -191,6 +192,10 @@ class SyncIntegrationTest {
         } finally {
             Files.writeString(l.stopFlag(), "stop");
             st.join(20_000);
+            for(var client:clients)client.db().close();
+            for(var handler:io.github.azotorp.wowuisync.server.util.Logs.LOG.getHandlers()){
+                handler.close();io.github.azotorp.wowuisync.server.util.Logs.LOG.removeHandler(handler);
+            }
         }
     }
 }

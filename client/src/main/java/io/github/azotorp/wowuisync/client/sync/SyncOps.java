@@ -263,6 +263,7 @@ public final class SyncOps {
         Path staged = app.paths().stagedObjects();
         List<TransferEngine.DownloadItem> items = new ArrayList<>();
         for (Map.Entry<String, Long> e : needed.entrySet()) items.add(new TransferEngine.DownloadItem(e.getKey(), e.getValue()));
+        if(backupProgress!=null)backupProgress.file("Downloading","",0,items.size(),0,downloadBytes);
         TransferStats stats = new TransferStats(items.size(), downloadBytes);
         new TransferEngine(c, app.config().dataConnections, control, sink, stats).download(source.id(), f.profileId(), items, staged);
         control.checkpoint();
@@ -297,7 +298,7 @@ public final class SyncOps {
                 "recovery","If interrupted during apply, restore this operation's selected backup categories from Backups, then retry Pull.")));
         // Apply writes: temp file next to the target, then atomic rename.
         boolean addonsChanged = false;
-        long applied=0,totalApply=writes.size()+plan.removedFiles().size();
+        long applied=0,appliedBytes=0,totalApply=writes.size()+plan.removedFiles().size();
         for (ManifestEntry e : writes) {
             control.checkpoint();
             Path target = resolve(flavor, e.path());
@@ -320,7 +321,8 @@ public final class SyncOps {
                 Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
             }
             if (SyncPaths.addonFolder(e.path()) != null) addonsChanged = true;
-            if(backupProgress!=null)backupProgress.update("Applied "+e.path(),++applied,totalApply);
+            applied++;appliedBytes+=e.size();
+            if(backupProgress!=null)backupProgress.file("Applying files",e.path(),applied,totalApply,appliedBytes,writeBytes);
         }
         // Removals.
         for (String p : plan.removedFiles()) {
@@ -330,7 +332,8 @@ public final class SyncOps {
             Path stop = SyncPaths.addonFolder(p) != null ? flavor.resolve("Interface").resolve("AddOns") : flavor.resolve("WTF");
             FileOps.deleteAndPrune(abs, stop);
             if (SyncPaths.addonFolder(p) != null) addonsChanged = true;
-            if(backupProgress!=null)backupProgress.update("Removed "+p,++applied,totalApply);
+            applied++;
+            if(backupProgress!=null)backupProgress.file("Applying files",p,applied,totalApply,appliedBytes,writeBytes);
         }
         // Staged objects are no longer needed.
         for (String h : needed.keySet()) Files.deleteIfExists(staged.resolve(h));

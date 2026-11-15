@@ -42,6 +42,9 @@ public final class Backups {
     /** Progress for long copies. */
     public interface Progress {
         void update(String what, long files, long totalFiles);
+        default void file(String phase, String path, long files, long totalFiles, long bytes, long totalBytes) {
+            update(phase,files,totalFiles);
+        }
     }
 
     private Backups() {}
@@ -74,32 +77,8 @@ public final class Backups {
         String suffix=account+"_"+now.format(STAMP)+"_"+java.util.UUID.randomUUID().toString().substring(0,8);
         Path destination=snapshotRoot(flavor,suffix),stage=flavor.resolve(".wus-backups").resolve(".partial-"+java.util.UUID.randomUUID());
         Files.createDirectories(stage);
-        Map<String,String> hashes=new java.util.TreeMap<>();
-        long[] done={0};
         try {
-            for(String category:List.of("Interface","WTF")) {
-                if(category.equals("Interface")?!includeInterface:!includeWtf) continue;
-                Path src=flavor.resolve(category),dst=stage.resolve(category);
-                if(!Files.exists(src,java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
-                Files.walkFileTree(src,new java.nio.file.SimpleFileVisitor<>() {
-                    private void check() throws IOException { if(cancelled.getAsBoolean()||Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("Backup cancelled; live files unchanged"); }
-                    @Override public java.nio.file.FileVisitResult preVisitDirectory(Path d,java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
-                        check();Files.createDirectories(dst.resolve(src.relativize(d)));return java.nio.file.FileVisitResult.CONTINUE;
-                    }
-                    @Override public java.nio.file.FileVisitResult visitFile(Path file,java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
-                        check();if(!attrs.isRegularFile()) throw new IOException("Backup refuses symlinks or special files");
-                        Path target=dst.resolve(src.relativize(file));
-                        String before=io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(file);
-                        Files.copy(file,target,java.nio.file.StandardCopyOption.COPY_ATTRIBUTES);
-                        String copied=io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(target);
-                        var after=Files.readAttributes(file,java.nio.file.attribute.BasicFileAttributes.class);
-                        if(!before.equals(copied)||attrs.size()!=after.size()||!attrs.lastModifiedTime().equals(after.lastModifiedTime())) throw new IOException("A live file changed during backup; close WoW and external tools then retry");
-                        hashes.put(category+"/"+src.relativize(file).toString().replace('\\','/'),copied);
-                        done[0]++;if(progress!=null)progress.update("Backing up "+category+"/"+src.relativize(file),done[0],total);
-                        return java.nio.file.FileVisitResult.CONTINUE;
-                    }
-                });
-            }
+            Map<String,String> hashes=BackupCopier.copy(flavor,stage,includeInterface,includeWtf,db,progress,cancelled,total,need);
             if(cancelled.getAsBoolean()) throw new java.io.InterruptedIOException("Backup cancelled");
             Files.write(stage.resolve("backup.json"),io.github.azotorp.wowuisync.common.json.Json.toBytes(new Snapshot(1,includeInterface,includeWtf,hashes)));
             Files.move(stage,destination,java.nio.file.StandardCopyOption.ATOMIC_MOVE);
@@ -187,7 +166,7 @@ public final class Backups {
             for(String category:List.of("Interface","WTF")) {
                 if(category.equals("Interface")?!state.iface():!state.wtf()) continue;
                 Path stage=flavor.resolve(".wus-restore-"+java.util.UUID.randomUUID());
-                FileOps.copyTree(snapshot.resolve(category),stage,(f,bytes)->{if(progress!=null)progress.update("Restoring "+category,f,-1);});
+                FileOps.copyTree(snapshot.resolve(category),stage,(f,bytes)->{if(progress!=null)progress.file("Restoring "+category,category,f,-1,bytes,-1);});
                 FileOps.deleteTree(flavor.resolve(category));
                 if(Files.exists(stage))Files.move(stage,flavor.resolve(category),java.nio.file.StandardCopyOption.ATOMIC_MOVE);
             }

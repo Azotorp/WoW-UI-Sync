@@ -16,6 +16,7 @@ import java.util.function.Consumer;
 /** Modal "working…" dialog for local operations (backups, restore, deletes, scans). */
 public final class BusyDialog extends JDialog {
     private final JLabel label = new JLabel(" ");
+    private final JLabel currentFile = new JLabel(" ");
     private final JProgressBar bar = new JProgressBar(0, 1000);
 
     private BusyDialog(Window owner, String title) {
@@ -26,7 +27,8 @@ public final class BusyDialog extends JDialog {
         p.setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
         p.add(label, BorderLayout.NORTH);
         p.add(bar, BorderLayout.CENTER);
-        p.setPreferredSize(new Dimension(420, 90));
+        p.add(currentFile, BorderLayout.SOUTH);
+        p.setPreferredSize(new Dimension(600, 110));
         setContentPane(p);
         pack();
         setLocationRelativeTo(owner);
@@ -39,6 +41,17 @@ public final class BusyDialog extends JDialog {
             bar.setIndeterminate(total <= 0);
             if (total > 0) bar.setValue((int) Math.min(1000, done * 1000 / total));
         });
+    }
+
+    public io.github.azotorp.wowuisync.client.local.Backups.Progress progress() {
+        return new io.github.azotorp.wowuisync.client.local.Backups.Progress() {
+            public void update(String phase,long done,long total){BusyDialog.this.update(phase,done,total);}
+            public void file(String phase,String path,long done,long total,long bytes,long totalBytes){
+                BusyDialog.this.update(phase,done,total);
+                String normalized=path==null?"":path.replace('\\','/');
+                SwingUtilities.invokeLater(()->{currentFile.setText(normalized.isEmpty()?" ":normalized);currentFile.setToolTipText(normalized.isEmpty()?null:normalized);});
+            }
+        };
     }
 
     /** Runs {@code task} with the dialog shown; calls {@code ok} on success, shows errors otherwise. */

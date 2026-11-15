@@ -26,6 +26,8 @@ public final class ProgressPanel extends JPanel {
     private final JButton cancel = new JButton("Cancel");
     private volatile Control control;
     private volatile long started, lastCount;
+    private volatile long operationStarted, lastOperationUpdate;
+    private volatile String fileOperationPhase="";
 
     /** Pause/cancel flags read by the transfer. */
     public static final class Control extends io.github.azotorp.wowuisync.client.sync.TransferControl {}
@@ -34,7 +36,7 @@ public final class ProgressPanel extends JPanel {
         super(new BorderLayout(0, 6));
         setBorder(BorderFactory.createCompoundBorder(BorderFactory.createTitledBorder("Progress"),
                 BorderFactory.createEmptyBorder(6, 8, 8, 8)));
-        bar.setStringPainted(true);
+        bar.setStringPainted(true);title.setName("phaseTitle");files.setName("fileStatistics");
         info.add(files);
         info.add(bytes);
         info.add(speed);
@@ -79,7 +81,7 @@ public final class ProgressPanel extends JPanel {
 
     /** Starts showing a new operation. */
     public Control begin(String what, boolean pausable) {
-        started=System.nanoTime();lastCount=0;
+        started=System.nanoTime();lastCount=0;fileOperationPhase="";
         Control c = new Control();
         control = c;
         SwingUtilities.invokeLater(() -> {
@@ -100,10 +102,32 @@ public final class ProgressPanel extends JPanel {
     }
 
     public void phase(String text) {
+        fileOperationPhase="";lastCount=0;
         SwingUtilities.invokeLater(() -> {
             title.setText(text);
+            files.setText(" ");bytes.setText(" ");speed.setText(" ");setNote("");
             currentFile.setText(" ");currentFile.setToolTipText(null);
-            bar.setIndeterminate(true);
+            bar.setValue(0);bar.setIndeterminate(true);
+        });
+    }
+
+    public void fileOperation(String phase, String path, long done, long total, long completedBytes, long totalBytes) {
+        long tick=System.nanoTime();
+        boolean changed=!phase.equals(fileOperationPhase);
+        if(changed){fileOperationPhase=phase;operationStarted=tick;lastOperationUpdate=0;}
+        if(!changed && done!=total && tick-lastOperationUpdate<100_000_000L)return;
+        lastOperationUpdate=tick;
+        double elapsed=(tick-operationStarted)/1e9;
+        String normalized=path==null?"":path.replace('\\','/');
+        SwingUtilities.invokeLater(() -> {
+            title.setText(phase+"…");setNote("");
+            files.setText(done<0?"Files: native folder copy in progress":total>=0?"Files: "+done+" of "+total:"Files: "+done);
+            bytes.setText(completedBytes<0?"Data: native folder copy in progress":totalBytes>=0?"Data: "+Sizes.human(completedBytes)+" of "+Sizes.human(totalBytes):"Data: "+Sizes.human(completedBytes));
+            double rate=elapsed>0.001&&completedBytes>=0?completedBytes/elapsed:0;
+            long eta=rate>0&&totalBytes>=completedBytes?(long)((totalBytes-completedBytes)/rate):-1;
+            speed.setText(completedBytes<0?"Elapsed "+Sizes.duration((long)elapsed):"Speed: "+Sizes.human((long)rate)+"/s · elapsed "+Sizes.duration((long)elapsed)+(eta>=0?" · ETA "+Sizes.duration(eta):""));
+            currentFile.setText(normalized.isEmpty()?" ":normalized);currentFile.setToolTipText(normalized.isEmpty()?null:normalized);
+            bar.setIndeterminate(total<=0);if(total>0)bar.setValue((int)Math.min(1000,done*1000/total));
         });
     }
 
