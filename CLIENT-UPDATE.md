@@ -15,4 +15,4 @@ Backup follow-up: Windows copies each selected Interface/WTF folder with Robocop
 
 Copy, verification, download and apply are separate phases; stale scan text is cleared. Native copy uses indeterminate progress while the OS job runs; verification displays real file/byte counts and a separate normalized path.
 
-Linux validation: 36 Java tests passed, one Windows-only native-copy test skipped locally. Native Windows execution is covered by the branch CI test; large-install Windows timing still needs user retest. The synthetic Linux backup benchmark improved from 2.536 s to 0.772 s for 10,010 files/51.4 MB. This is not a one-second guarantee for a 3.7 GB Windows installation.
+Linux validation: 36 Java tests passed, one Windows-only native-copy test skipped locally. Windows and Ubuntu branch CI builds/tests pass, including real Windows Robocopy and the Windows client launch smoke (run 43677960647). Large-install Windows timing still needs user retest. The synthetic Linux backup benchmark improved from 2.536 s to 0.772 s for 10,010 files/51.4 MB. This is not a one-second guarantee for a 3.7 GB Windows installation.
