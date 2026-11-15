@@ -16,6 +16,18 @@ class RedesignSafetyTest {
     Path flavor() throws Exception {Path f=dir.resolve("wow/_forever_");Files.createDirectories(f);return f;}
     ClientDb db() throws Exception{return ClientDb.open(dir.resolve("client/client.db"),dir.resolve("client/backups"));}
     void write(Path p,String s)throws Exception{Files.createDirectories(p.getParent());Files.writeString(p,s);}
+    @Test void unchangedFollowupScanReportsCacheHitsWithoutReadingContents() throws Exception {
+        Path f=flavor();write(f.resolve("Interface/AddOns/CacheProbe/file.lua"),"-- probe");
+        try(ClientDb db=db()) {
+            Scanner.scan(f,new Exclusions(List.of()),db,null,()->false);
+            long[] observed={-1,-1,-1};
+            Scanner.scan(f,new Exclusions(List.of()),db,new Scanner.Progress(){
+                public void update(int done,int total){}
+                public void metrics(int hits,int hashed,long read,double elapsed,double eta,int workers){observed[0]=hits;observed[1]=hashed;observed[2]=read;}
+            },()->false);
+            assertArrayEquals(new long[]{1,0,0},observed);
+        }
+    }
     @Test void freshInstallAcceptedWithoutInterfaceOrWtf() throws Exception {
         Path f=flavor();Files.writeString(f.resolve(".flavor.info"),"marker");
         assertTrue(FlavorDetector.detect(f.getParent()).getFirst().valid());

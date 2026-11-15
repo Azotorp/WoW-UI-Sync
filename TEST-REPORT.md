@@ -4,7 +4,7 @@ Date: 2026-11-14 (America/Vancouver). Baseline: main `4076848`, restored 1.0.0 i
 
 ## Results
 
-- JDK 21.0.13 / Maven 3.9.9, Linux: **29 Java tests passed, zero failures/errors/skips** using freshly generated synthetic key fixtures. Normal builds skip the optional supplied-key test unless its property is supplied; no private keys are packaged.
+- JDK 21.0.13 / Maven 3.9.9, Linux: **31 Java tests passed, zero failures/errors/skips** using freshly generated synthetic key fixtures. Normal builds skip the optional supplied-key test unless its property is supplied; no private keys are packaged.
 - **35 Python service-tool tests passed**: names/quoting, atomic writes/backups, occupied port, overlapping stores, existing-service refusal without writes, invalid edited-unit preservation, non-root guidance, cross-process store lock, failed-update rollback, uninstall preserving data/other units.
 - Baseline 1.0.0 builds/tests pass. New shaded client/server JARs have executable manifests and version `1.2.0-alpha`; both version entry points launch with Java 21.
 - Live loopback TLS integration: authenticate, push/commit, Pull on a second client, explicit local-only removal, data-only Push preserving unrelated server content, non-folder-named TOC SavedVariables transfer, incremental update, data-only Pull, canceled Pull before apply, marker-only fresh-install Pull creating Interface/WTF, empty Push refusal, protocol-1 rejection, stale full-Push rejection, roles/quotas/account isolation from existing server tests.
@@ -12,6 +12,14 @@ Date: 2026-11-14 (America/Vancouver). Baseline: main `4076848`, restored 1.0.0 i
 - Backup tests cover all four checkbox combinations, absent folders/restoring absent state, cancellation without live changes, insufficient space using a sparse synthetic file, corrupt-snapshot refusal, legacy coverage and generation replacement.
 - Headless Swing table test confirms numeric sorting, zero numeric size and disabled Addon/enabled Include Data for data-only rows.
 - Store compatibility smoke: create a synthetic key-authenticated store with the baseline JAR, open it with 1.2, start/stop the 1.2 server on an independent loopback port, then read it again with 1.0. Current-manifest fingerprint, synthetic public-key hash and TLS fingerprint were identical before/after. Server schema remains version 1.
+
+## Client scan/progress follow-up
+
+Client-only patch: scan counters/read bytes/cache hits, throughput/elapsed/ETA and the active relative path now use separate rows, matching upload progress. A headless Swing layout regression renders the panel, verifies path/statistic separation and clearing at completion. A real follow-up-scan test confirms all unchanged entries hit cache with zero content bytes read. All 31 Java tests pass, including optional synthetic-key tests; server protocol/storage are unchanged.
+
+Windows observation supplied during testing: 35,962 files, 3,722,718,415 bytes hashed, 0 hits, traversal 0.590s, cache writes 2.038s, elapsed 97.967s. This is a cold-cache reading/hashing workload, not evidence of slow traversal or cache persistence. The prior two-worker cap is replaced by the original 1.0 CPU-based bound (maximum eight). Buffers are reused per worker, avoiding a fresh 256 KiB allocation per file; Unix attribute support is detected once instead of throwing unsupported-view exceptions per file on Windows. Existing precise metadata checks and durable checkpoint policy remain.
+
+`benchmarks/scan-progress-fix-results.csv` contains Linux before/after and worker-count trials on the same 10,010-file synthetic corpus. These are sequential, OS-cache-warm measurements with varying shared-host load, not a measurement of the user Windows installation and not a guaranteed speedup. Windows cold-scan performance still requires user retest; upload throughput is a different metric. Existing cache rows are preserved. This update requires replacing/rerunning only the client JAR in its current folder, retaining its existing adjacent wow-ui-sync-data. No server restart or update.
 
 ## WorkingDirectory directive fix
 

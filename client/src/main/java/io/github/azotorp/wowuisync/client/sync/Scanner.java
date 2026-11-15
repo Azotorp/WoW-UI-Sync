@@ -18,28 +18,30 @@ public final class Scanner {
     public interface Progress {
         void update(int done, int total);
         default void details(String text) {}
+        default void metrics(int cacheHits, int hashed, long bytesRead, double elapsedSeconds, double etaSeconds, int workers) {}
+        default void currentFile(String path) {}
     }
     private record Found(String rel, Path abs, long size, String modified, String identity) {}
     private record Result(Found file, String sha) {}
     private Scanner() {}
-    private static Found found(String rel, Path path, BasicFileAttributes a) throws IOException {
+    private static final ThreadLocal<byte[]> HASH_BUFFER = ThreadLocal.withInitial(() -> new byte[256*1024]);
+    private static Found found(String rel, Path path, BasicFileAttributes a, boolean unix) throws IOException {
         String identity = String.valueOf(a.fileKey()) + ":" + a.creationTime();
-        try { identity += ":" + Files.getAttribute(path,"unix:ctime",LinkOption.NOFOLLOW_LINKS); }
-        catch (UnsupportedOperationException | IllegalArgumentException ignored) { /* Windows: fileKey + creation time */ }
+        if (unix) identity += ":" + Files.getAttribute(path,"unix:ctime",LinkOption.NOFOLLOW_LINKS);
         return new Found(rel,path,a.size(),a.lastModifiedTime().toString(),identity);
     }
-    private static Found stat(Found f) throws IOException {
-        return found(f.rel(),f.abs(),Files.readAttributes(f.abs(),BasicFileAttributes.class,LinkOption.NOFOLLOW_LINKS));
+    private static Found stat(Found f, boolean unix) throws IOException {
+        return found(f.rel(),f.abs(),Files.readAttributes(f.abs(),BasicFileAttributes.class,LinkOption.NOFOLLOW_LINKS),unix);
     }
-    private static Result hash(Found f, BooleanSupplier cancelled) throws IOException, CancelledException {
+    private static Result hash(Found f, BooleanSupplier cancelled, boolean unix) throws IOException, CancelledException {
         check(cancelled);
-        if (!f.equals(stat(f))) throw new IOException("File changed before hashing; retry scan");
+        if (!f.equals(stat(f,unix))) throw new IOException("File changed before hashing; retry scan");
         var md = Hashing.newSha256();
-        byte[] buffer = new byte[256*1024];
+        byte[] buffer = HASH_BUFFER.get();
         try (InputStream in = Files.newInputStream(f.abs())) {
             int n; while ((n=in.read(buffer))!=-1) { check(cancelled);md.update(buffer,0,n); }
         }
-        if (!f.equals(stat(f))) throw new IOException("File changed during hashing; retry scan");
+        if (!f.equals(stat(f,unix))) throw new IOException("File changed during hashing; retry scan");
         return new Result(f,Hashing.hex(md.digest()));
     }
     private static void check(BooleanSupplier cancelled) throws CancelledException {
@@ -49,15 +51,16 @@ public final class Scanner {
             throws IOException, SQLException, CancelledException {
         long start=System.nanoTime();
         flavor=flavor.toRealPath();
+        boolean unix=Files.getFileStore(flavor).supportsFileAttributeView("unix");
         List<Found> found=new ArrayList<>(); List<String> invalid=new ArrayList<>();
         try {
-            walk(flavor,flavor.resolve("WTF"),exclusions,found,invalid,cancelled);
+            walk(flavor,flavor.resolve("WTF"),exclusions,found,invalid,cancelled,unix);
             Path addons=flavor.resolve("Interface/AddOns");
             if (Files.isDirectory(addons,LinkOption.NOFOLLOW_LINKS)) try (var stream=Files.list(addons)) {
                 for (Path folder : (Iterable<Path>)stream::iterator) {
                     check(cancelled);
                     if (Files.isSymbolicLink(folder)) throw new IOException("Symlink add-on folder must be excluded or replaced before syncing");
-                    if (Files.isDirectory(folder,LinkOption.NOFOLLOW_LINKS)) walk(flavor,folder,exclusions,found,invalid,cancelled);
+                    if (Files.isDirectory(folder,LinkOption.NOFOLLOW_LINKS)) walk(flavor,folder,exclusions,found,invalid,cancelled,unix);
                 }
             }
         } catch (java.io.InterruptedIOException e) { throw new CancelledException(); }
@@ -76,7 +79,8 @@ public final class Scanner {
         }
         int total=found.size(),done=hits;
         if (progress!=null) progress.update(done,total);
-        int threads=Math.max(1,Math.min(8,Integer.getInteger("wowuisync.hashThreads",2)));
+        int threads=Math.max(1,Math.min(8,Integer.getInteger("wowuisync.hashThreads",io.github.azotorp.wowuisync.common.hash.ParallelHasher.defaultThreads())));
+        if(progress!=null)progress.metrics(hits,0,0,(System.nanoTime()-start)/1e9,-1,threads);
         ExecutorService pool=Executors.newFixedThreadPool(threads);
         CompletionService<Result> results=new ExecutorCompletionService<>(pool);
         List<ScanCache> pending=new ArrayList<>();
@@ -86,7 +90,7 @@ public final class Scanner {
             while(completed<jobs.size()) {
                 check(cancelled);
                 while(submitted<jobs.size() && submitted-completed<threads*2) {
-                    Found f=jobs.get(submitted++);results.submit(()->hash(f,cancelled));
+                    Found f=jobs.get(submitted++);results.submit(()->hash(f,cancelled,unix));
                 }
                 Future<Result> future=results.poll(100,TimeUnit.MILLISECONDS);
                 if(future==null) continue;
@@ -101,10 +105,8 @@ public final class Scanner {
                 if(progress!=null && (tick-lastUi>=100_000_000L || done==total)) {
                     progress.update(done,total);
                     double seconds=(tick-start)/1e9;
-                    progress.details("Scan: "+done+"/"+total+" · cache "+hits+" · hashed "+hashed+" · read "
-                            +io.github.azotorp.wowuisync.common.util.Sizes.human(read)+" · "
-                            +io.github.azotorp.wowuisync.common.util.Sizes.human((long)(read/Math.max(0.001,seconds)))+"/s · "
-                            +String.format(java.util.Locale.ROOT,"elapsed %.1fs · ETA %.1fs · ",seconds,hashed>0?(jobs.size()-hashed)*seconds/hashed:0)+f.rel());
+                    progress.metrics(hits,hashed,read,seconds,hashed>0?(jobs.size()-hashed)*seconds/hashed:-1,threads);
+                    progress.currentFile(f.rel());
                     lastUi=tick;
                 }
             }
@@ -119,16 +121,16 @@ public final class Scanner {
         check(cancelled);
         List<ManifestEntry> entries=new ArrayList<>();Map<String,Path> files=new HashMap<>();
         for(Found f:found) {
-            if(!f.equals(stat(f))) throw new IOException("Installation changed during scan; retry after closing external add-on tools");
+            if(!f.equals(stat(f,unix))) throw new IOException("Installation changed during scan; retry after closing external add-on tools");
             entries.add(new ManifestEntry(f.rel(),f.size(),hashes.get(f.rel())));files.put(SyncPaths.key(f.rel()),f.abs());
         }
         double elapsed=(System.nanoTime()-start)/1e9;
         String summary=String.format(Locale.ROOT,"Scan complete: %d files, %d cache hits, %d hashed, %d bytes read; traversal %.3fs, cache writes %.3fs, elapsed %.3fs",total,hits,hashed,read,traversal/1e9,persistNanos/1e9,elapsed);
-        ClientLog.LOG.info(summary);if(progress!=null) { progress.update(total,total);progress.details(summary); }
+        ClientLog.LOG.info(summary);if(progress!=null) { progress.update(total,total);progress.metrics(hits,hashed,read,elapsed,-1,threads);progress.currentFile("");progress.details(summary); }
         List<String> paths=entries.stream().map(ManifestEntry::path).toList();
         return new LocalScan(flavor,new Manifest(entries),files,invalid,SyncPaths.caseCollisions(paths));
     }
-    private static void walk(Path flavor, Path dir, Exclusions ex, List<Found> out, List<String> invalid, BooleanSupplier cancelled) throws IOException {
+    private static void walk(Path flavor, Path dir, Exclusions ex, List<Found> out, List<String> invalid, BooleanSupplier cancelled, boolean unix) throws IOException {
         if (Files.isSymbolicLink(dir)) throw new IOException("Symlink sync root is unsupported");
         if (!Files.isDirectory(dir)) return;
         Files.walkFileTree(dir, new SimpleFileVisitor<>() {
@@ -155,7 +157,7 @@ public final class Scanner {
                     invalid.add(rel + " (" + bad + ")");
                     return FileVisitResult.CONTINUE;
                 }
-                out.add(found(rel, f, attrs));
+                out.add(found(rel, f, attrs, unix));
                 return FileVisitResult.CONTINUE;
             }
 

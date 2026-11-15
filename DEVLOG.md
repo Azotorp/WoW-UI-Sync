@@ -1,3 +1,7 @@
+## Client scan/progress follow-up
+
+Separated file path from scan statistics, restored the original bounded concurrency, reused worker buffers and gated Unix timestamps by actual filesystem support. All 31 Java tests pass, including cache-hit and rendered progress-layout regression checks. Server protocol and installed server binaries stay unchanged.
+
 ## Native systemd WorkingDirectory validation fix
 
 Removed incorrect outer quotation marks on WorkingDirectory. Added real systemd-analyze verification for generated units, including paths with spaces, percent signs and dollar signs. All 35 helper tests pass; no Java binary change.

@@ -280,7 +280,8 @@ final class SyncController {
     private io.github.azotorp.wowuisync.client.sync.Scanner.Progress scanProgress() {
         return new io.github.azotorp.wowuisync.client.sync.Scanner.Progress() {
             public void update(int done,int total){w.progress.count("Scanning files",done,total);}
-            public void details(String text){w.progress.note(text);}
+            public void metrics(int hits,int hashed,long read,double elapsed,double eta,int workers){w.progress.scanMetrics(hits,hashed,read,elapsed,eta,workers);}
+            public void currentFile(String path){w.progress.currentFile(path);}
         };
     }
     private java.util.function.BooleanSupplier scanCancellation(io.github.azotorp.wowuisync.client.sync.TransferControl control) {
@@ -318,7 +319,7 @@ final class SyncController {
             p.transfer(s.filesDone.get(), s.filesTotal, s.bytesDone.get(), s.bytesTotal, s.wireBytes.get(), s.bytesPerSecond());
         }
 
-        @Override public void current(String description) { p.note(description); }
+        @Override public void current(String description) { p.currentFile(description); }
         @Override
         public void connectionLost(String message) {
             p.pauseFromEngine(message);

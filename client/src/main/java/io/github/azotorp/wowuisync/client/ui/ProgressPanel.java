@@ -20,6 +20,8 @@ public final class ProgressPanel extends JPanel {
     private final JLabel bytes = new JLabel(" ");
     private final JLabel speed = new JLabel(" ");
     private final JLabel note = new JLabel(" ");
+    private final JPanel info = new JPanel(new GridLayout(0, 1, 0, 2));
+    private final JLabel currentFile = new JLabel(" ");
     private final JButton pause = new JButton("Pause");
     private final JButton cancel = new JButton("Cancel");
     private volatile Control control;
@@ -33,11 +35,14 @@ public final class ProgressPanel extends JPanel {
         setBorder(BorderFactory.createCompoundBorder(BorderFactory.createTitledBorder("Progress"),
                 BorderFactory.createEmptyBorder(6, 8, 8, 8)));
         bar.setStringPainted(true);
-        JPanel info = new JPanel(new GridLayout(0, 1, 0, 2));
         info.add(files);
         info.add(bytes);
         info.add(speed);
-        info.add(note);
+        info.add(currentFile);
+        currentFile.setName("currentFile");
+        bytes.setName("dataStatistics");
+        speed.setName("rateStatistics");
+        currentFile.setMinimumSize(new java.awt.Dimension(0, currentFile.getPreferredSize().height));
         JPanel b = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         b.add(pause);
         b.add(cancel);
@@ -68,7 +73,7 @@ public final class ProgressPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             pause.setText("Resume");
             pause.setEnabled(true);
-            note.setText(why);
+            setNote(why);
         });
     }
 
@@ -84,7 +89,8 @@ public final class ProgressPanel extends JPanel {
             files.setText(" ");
             bytes.setText(" ");
             speed.setText(" ");
-            note.setText(" ");
+            setNote("");
+            currentFile.setText(" ");currentFile.setToolTipText(null);
             pause.setText("Pause");
             pause.setEnabled(pausable);
             cancel.setEnabled(true);
@@ -96,12 +102,37 @@ public final class ProgressPanel extends JPanel {
     public void phase(String text) {
         SwingUtilities.invokeLater(() -> {
             title.setText(text);
+            currentFile.setText(" ");currentFile.setToolTipText(null);
             bar.setIndeterminate(true);
         });
     }
 
     public void note(String text) {
-        SwingUtilities.invokeLater(() -> note.setText(text == null || text.isEmpty() ? " " : text));
+        SwingUtilities.invokeLater(() -> setNote(text));
+    }
+
+    private void setNote(String text) {
+        boolean empty=text==null || text.isEmpty();
+        note.setText(empty ? " " : text);
+        if(empty && note.getParent()==info)info.remove(note);
+        else if(!empty && note.getParent()!=info)info.add(note,Math.min(3,info.getComponentCount()));
+        info.revalidate();info.repaint();
+    }
+
+    public void currentFile(String path) {
+        SwingUtilities.invokeLater(() -> {
+            currentFile.setText(path == null || path.isEmpty() ? " " : path);
+            currentFile.setToolTipText(path == null || path.isEmpty() ? null : path);
+        });
+    }
+
+    public void scanMetrics(int cacheHits, int hashed, long bytesRead, double elapsedSeconds, double etaSeconds, int workers) {
+        SwingUtilities.invokeLater(() -> {
+            bytes.setText("Read: " + Sizes.human(bytesRead) + " · cache hits: " + cacheHits + " · hashed: " + hashed + " · workers: " + workers);
+            double rate = bytesRead / Math.max(0.001, elapsedSeconds);
+            speed.setText("Read speed: " + Sizes.human((long)rate) + "/s · elapsed "
+                    + Sizes.duration((long)elapsedSeconds) + (etaSeconds >= 0 ? " · ETA " + Sizes.duration((long)etaSeconds) : ""));
+        });
     }
 
     public void count(String label, long done, long total) {
@@ -133,6 +164,7 @@ public final class ProgressPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             title.setText(text + " · elapsed " + Sizes.duration((System.nanoTime()-started)/1_000_000_000L));
             speed.setText(" ");
+            currentFile.setText(" ");currentFile.setToolTipText(null);
             bar.setIndeterminate(false);
             bar.setValue(1000);
             pause.setEnabled(false);
@@ -146,6 +178,7 @@ public final class ProgressPanel extends JPanel {
         files.setText(" ");
         bytes.setText(" ");
         speed.setText(" ");
+        setNote("");currentFile.setText(" ");currentFile.setToolTipText(null);
         bar.setIndeterminate(false);
         bar.setValue(0);
         pause.setEnabled(false);

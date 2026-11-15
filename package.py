@@ -9,7 +9,7 @@ root=Path(__file__).resolve().parent
 name='WoW-UI-Sync-1.2.0-alpha'
 out=root/'dist'/f'{name}.zip'
 files={}
-for filename in ['README.md','UPGRADE.md','TEST-REPORT.md','DESIGN.md','DESIGN-1.2.md','AGENTS.md','CLIENT_REFACTOR_PLAN.md','DEVLOG.md','LICENSE','pom.xml','build.sh','package.sh','package.py']:
+for filename in ['README.md','UPGRADE.md','TEST-REPORT.md','DESIGN.md','DESIGN-1.2.md','AGENTS.md','CLIENT_REFACTOR_PLAN.md','CLIENT-UPDATE.md','DEVLOG.md','LICENSE','pom.xml','build.sh','package.sh','package.py']:
     files[filename]=root/filename
 for directory in ['common','client','server','tests','benchmarks']:
     for file in sorted((root/directory).rglob('*')):
