@@ -5,13 +5,17 @@ Date: 2026-11-14 (America/Vancouver). Baseline: main `4076848`, restored 1.0.0 i
 ## Results
 
 - JDK 21.0.13 / Maven 3.9.9, Linux: **29 Java tests passed, zero failures/errors/skips** using freshly generated synthetic key fixtures. Normal builds skip the optional supplied-key test unless its property is supplied; no private keys are packaged.
-- **33 Python service-tool tests passed**: names/quoting, atomic writes/backups, occupied port, overlapping stores, existing-service refusal without writes, invalid edited-unit preservation, non-root guidance, cross-process store lock, failed-update rollback, uninstall preserving data/other units.
+- **35 Python service-tool tests passed**: names/quoting, atomic writes/backups, occupied port, overlapping stores, existing-service refusal without writes, invalid edited-unit preservation, non-root guidance, cross-process store lock, failed-update rollback, uninstall preserving data/other units.
 - Baseline 1.0.0 builds/tests pass. New shaded client/server JARs have executable manifests and version `1.2.0-alpha`; both version entry points launch with Java 21.
 - Live loopback TLS integration: authenticate, push/commit, Pull on a second client, explicit local-only removal, data-only Push preserving unrelated server content, non-folder-named TOC SavedVariables transfer, incremental update, data-only Pull, canceled Pull before apply, marker-only fresh-install Pull creating Interface/WTF, empty Push refusal, protocol-1 rejection, stale full-Push rejection, roles/quotas/account isolation from existing server tests.
 - Scanner tests include orderly cancellation + DB reopen, changed metadata/content, malformed cache row recovery, denied file access (Linux), symlink refusal, and **a child JVM halted during scan** with subsequent checkpoint recovery and successful completion.
 - Backup tests cover all four checkbox combinations, absent folders/restoring absent state, cancellation without live changes, insufficient space using a sparse synthetic file, corrupt-snapshot refusal, legacy coverage and generation replacement.
 - Headless Swing table test confirms numeric sorting, zero numeric size and disabled Addon/enabled Include Data for data-only rows.
 - Store compatibility smoke: create a synthetic key-authenticated store with the baseline JAR, open it with 1.2, start/stop the 1.2 server on an independent loopback port, then read it again with 1.0. Current-manifest fingerprint, synthetic public-key hash and TLS fingerprint were identical before/after. Server schema remains version 1.
+
+## WorkingDirectory directive fix
+
+Removed shell-style outer quotes from WorkingDirectory while retaining quoted ExecStart arguments and escaped percent specifiers. Two further tests pass, including a real systemd-analyze verify invocation against temporary generated units with plain, spaced, percent and dollar-containing paths. All four native unit validations pass on this Linux environment; no units were installed or services started. This adds native unit-syntax evidence, not a claim of a full privileged installation test. Java binaries remain unchanged.
 
 ## Installer defaults and quotation fixes
 
@@ -62,7 +66,7 @@ Traversal/stat, cache persistence and end-to-end elapsed are measured separately
 | Fresh installation and empty Push | Automated/live integration pass |
 | Persistent incremental scan cache and process termination | Automated child-process recovery passes; Linux benchmark measured |
 | Numeric sorting and zero values | Headless model test passes; actual native GUI layout still needs user review |
-| Dynamic services and rollback | 33 service-helper tests; Java store locking tested; actual privileged systemd lifecycle **not run here** |
+| Dynamic services and rollback | 35 service-helper tests; Java store locking tested; actual privileged systemd lifecycle **not run here** |
 | Protocol rejection, conflict, identity/storage compatibility | Loopback TLS and synthetic 1.0-store smoke pass |
 | Console boundary | Optional placeholder omitted; no server-console controls shipped |
 | Packaged JARs and reproducible packaging | Linux entry points/manifests checked; explicit source/deployable allowlist, fixed ZIP metadata, checksums |

@@ -57,7 +57,7 @@ def unit_text(name, java, jar, data, user, group):
     return '\n'.join([
         '[Unit]', 'Description=WoW UI Sync ' + name.removesuffix('.service'), 'After=network.target', '',
         '[Service]', 'Type=simple', 'User=' + user, 'Group=' + group,
-        'WorkingDirectory=' + quote(Path(jar).parent, False),
+        'WorkingDirectory=' + str(Path(jar).parent).replace('%', '%%'),
         'ExecStart=' + ' '.join([quote(java), '-jar', quote(jar), 'run', '--data', quote(data)]),
         'Restart=on-failure', 'RestartSec=10', 'TimeoutStopSec=30', 'UMask=0077',
         'NoNewPrivileges=true', 'PrivateTmp=true', '', '[Install]', 'WantedBy=multi-user.target', ''

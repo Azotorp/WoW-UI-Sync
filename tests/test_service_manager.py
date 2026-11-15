@@ -180,4 +180,25 @@ class InstallerDefaultsTests(unittest.TestCase):
             self.assertFalse(m.usable_bind_ip(address))
         self.assertTrue(m.usable_bind_ip('203.0.113.25'))
 
+
+
+class NativeSystemdUnitTests(unittest.TestCase):
+    def test_working_directory_is_not_shell_quoted(self):
+        text=m.unit_text('test','/usr/bin/java','/opt/minecraft/wow-ui-sync/wow-ui-sync.server.jar','/opt/minecraft/wow-ui-sync/data','minecraft','minecraft')
+        self.assertIn('WorkingDirectory=/opt/minecraft/wow-ui-sync\n',text)
+        self.assertNotIn('WorkingDirectory="',text)
+        self.assertIn('ExecStart="/usr/bin/java" -jar "',text)
+    def test_real_systemd_verifies_generated_units(self):
+        import shutil,subprocess
+        analyzer=shutil.which('systemd-analyze')
+        if not analyzer:self.skipTest('systemd-analyze unavailable')
+        # These are temporary unit files; verify does not install or start a service.
+        for directory in ['plain','space name','percent%name','dollar$name']:
+            with self.subTest(directory=directory),tempfile.TemporaryDirectory() as temporary:
+                work=Path(temporary)/directory;work.mkdir()
+                unit=Path(temporary)/'wow-ui-sync-verification.service'
+                unit.write_text(m.unit_text('wow-ui-sync-verification','/usr/bin/true',work/'server.jar',work/'data','root','root'))
+                result=subprocess.run([analyzer,'verify','--man=no',str(unit)],capture_output=True,text=True)
+                self.assertEqual(0,result.returncode,result.stderr)
+
 if __name__=='__main__':unittest.main()

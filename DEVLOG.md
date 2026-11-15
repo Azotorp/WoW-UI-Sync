@@ -1,3 +1,7 @@
+## Native systemd WorkingDirectory validation fix
+
+Removed incorrect outer quotation marks on WorkingDirectory. Added real systemd-analyze verification for generated units, including paths with spaces, percent signs and dollar signs. All 35 helper tests pass; no Java binary change.
+
 ## Installer quotation and default fixes
 
 Fixed unrelated-unit unmatched quote failure during shared-JAR checks. Setup defaults to the resolved Java path, wow-ui-sync service, detected primary interface IP, port 2027 and invoking user. All 33 helper tests pass; Java binaries unchanged.
