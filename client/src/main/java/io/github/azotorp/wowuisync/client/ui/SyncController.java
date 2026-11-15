@@ -90,6 +90,8 @@ final class SyncController {
         String local = s.scan().manifest().size() + " files (" + Sizes.human(s.scan().manifest().totalBytes()) + ") on this PC";
         return switch (s.kind()) {
             case UP_TO_DATE -> new StatusView("Up to date", Theme.GREEN, lastPush + " · " + local, false);
+            case SETTINGS_DIFFER -> new StatusView("Add-ons and data match; general WTF settings differ", Theme.BLUE,
+                    lastPush + " · General WTF settings: opt-in", true);
             case LOCAL_CHANGES -> new StatusView("Local changes - push recommended", Theme.BLUE, lastPush + " · " + local, true);
             case SERVER_NEWER -> new StatusView("Server is newer (from " + r.lastPushDevice() + ", " + StatusView.when(r.lastPushAt())
                     + ") - pull recommended", Theme.ORANGE, lastPush, true);
@@ -180,7 +182,7 @@ final class SyncController {
         if (nothing && need.missingHashes().isEmpty() && s.server().currentFingerprint() != null) {
             ops.pushCancel(c.conn(), need);
             done("Nothing to push.");
-            Dialogs.info(w, "Nothing to push: the server copy already matches this PC.");
+            Dialogs.info(w, "Nothing to push: the selected content already matches the server.\n\nUnselected content can still differ. Use Show details to inspect differences; general WTF settings are unchecked by default.");
             refreshStatus();
             return;
         }

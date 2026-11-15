@@ -2,6 +2,12 @@
 
 Date: 2026-11-14 (America/Vancouver). Baseline: main `4076848`, restored 1.0.0 implementation. New branch: `feature/1.2.0-alpha-sync-redesign`. No production service, database, keys, main branch or published release was modified.
 
+## Status/selection consistency follow-up
+
+Client-only fix: settings-only differences no longer recommend a default Push that excludes those settings. The badge identifies general WTF differences, keeps Show details, and leaves actual baseline fingerprints intact. Exact manifest matches retain the green Up to date badge. Add-on and SavedVariables differences are not suppressed. The no-op Push message refers only to selected content. Comparison reuses the validated current base manifest where possible and fetches the remote manifest only when needed; no extra content hashing or server changes.
+
+Regression coverage reproduces changed macros-cache.txt after a successful Push: status identifies settings-only differences, default selection produces the unchanged remote manifest, explicitly selecting general settings produces a change, the base stays unchanged, and restoring the file returns Up to date. Separate checks cover account/character SavedVariables and add-on differences in both directions.
+
 ## Results
 
 - JDK 21.0.13 / Maven 3.9.9, Linux: **37 Java tests: 36 passed, zero failures/errors, one Windows-only native-copy test skipped locally** using freshly generated synthetic key fixtures. Normal builds skip the optional supplied-key test unless its property is supplied; no private keys are packaged.

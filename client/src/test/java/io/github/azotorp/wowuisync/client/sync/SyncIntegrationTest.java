@@ -62,6 +62,19 @@ class SyncIntegrationTest {
     }
 
     @Test
+    void settingsStatusNeverHidesAddonOrSavedVariablesDifferences() {
+        var empty = io.github.azotorp.wowuisync.common.manifest.Manifest.empty();
+        for (String path : List.of("Interface/AddOns/Test/Test.lua", "WTF/Account/ACC/SavedVariables/Test.lua",
+                "WTF/Account/ACC/Realm/Character/SavedVariables/Test.lua")) {
+            var changed = new io.github.azotorp.wowuisync.common.manifest.Manifest(List.of(
+                    new io.github.azotorp.wowuisync.common.manifest.ManifestEntry(path, 1, "a".repeat(64))));
+            assertFalse(SyncOps.generalSettingsOnly(io.github.azotorp.wowuisync.common.manifest.ManifestDiff.between(empty, changed)));
+            assertFalse(SyncOps.generalSettingsOnly(io.github.azotorp.wowuisync.common.manifest.ManifestDiff.between(changed, empty)));
+        }
+        assertFalse(SyncOps.generalSettingsOnly(io.github.azotorp.wowuisync.common.manifest.ManifestDiff.between(empty, empty)));
+    }
+
+    @Test
     void pushPull() throws Exception {
         // --- server
         Path sd = dir.resolve("server");
@@ -118,6 +131,23 @@ class SyncIntegrationTest {
             Msg.PushNeed need = ops1.pushBegin(c1, root, fl1, s1, null);
             assertEquals(s1.manifest().size(), need.newFiles().size());
             ops1.pushUpload(c1, root, fl1, s1, need, new TransferControl(), SINK);
+            assertEquals(SyncStatus.Kind.UP_TO_DATE, ops1.status(c1, root, fl1, ops1.scan(fl1, null, () -> false)).kind());
+
+            // Opt-in general settings must not recommend a default Push that has no changes.
+            write(f1.resolve("WTF/Account/ACC/macros-cache.txt"), "CHANGED MACRO".getBytes());
+            LocalScan settingsScan = ops1.scan(fl1, null, () -> false);
+            assertEquals(SyncStatus.Kind.SETTINGS_DIFFER, ops1.status(c1, root, fl1, settingsScan).kind());
+            var remoteSettings = ops1.pullSource(c1, root, fl1);
+            var defaultSelection = new PullSelection(List.of("WeakAuras", "WeakAuras_Options", "Details"),
+                    List.of("WeakAuras", "WeakAuras_Options", "Details"), false, List.of(), List.of());
+            var defaultTarget = io.github.azotorp.wowuisync.common.addon.PullPlanner.target(settingsScan.manifest(),
+                    remoteSettings.manifest(), defaultSelection, io.github.azotorp.wowuisync.common.addon.PullMode.KEEP);
+            assertEquals(remoteSettings.fingerprint(), defaultTarget.fingerprint());
+            var withGeneral = new PullSelection(defaultSelection.addons(), defaultSelection.dataAddons(), true, List.of(), List.of());
+            assertNotEquals(remoteSettings.fingerprint(), io.github.azotorp.wowuisync.common.addon.PullPlanner.target(
+                    settingsScan.manifest(), remoteSettings.manifest(), withGeneral, io.github.azotorp.wowuisync.common.addon.PullMode.KEEP).fingerprint());
+            assertEquals(s1.manifest().fingerprint(), ops1.bases().fingerprint(c1.hostPort(), root.id(), fl1.profileId()));
+            write(f1.resolve("WTF/Account/ACC/macros-cache.txt"), "MACRO".getBytes());
             assertEquals(SyncStatus.Kind.UP_TO_DATE, ops1.status(c1, root, fl1, ops1.scan(fl1, null, () -> false)).kind());
 
             // --- PC2 pulls everything

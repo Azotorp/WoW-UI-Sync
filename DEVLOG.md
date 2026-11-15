@@ -919,3 +919,7 @@ All open questions are answered and the design is declared complete. Everything 
 - **Reset codes:** 5 wrong attempts invalidate a code; responses never reveal whether a username or email exists.
 - **Java package root:** `io.github.azotorp.wowuisync`.
 - **Monetization:** donations only for now (e.g. GitHub Sponsors), wording to be written later; no paid features in this repo.
+
+## 1.2 status consistency follow-up
+
+General WTF differences are labeled separately because those files are opt-in by default. No-op Push messages describe only the chosen scope. No synthetic baseline or blanket Up to date state hides differences. Client-only update; server unchanged.

@@ -50,7 +50,7 @@ Downloads stage before live writes. Changed local files or server manifests afte
 
 ## Client scan/progress update
 
-The `WoW-UI-Sync-Client-1.2.0-alpha-backupfix.zip` follow-up updates only the client. Finish any current transfer, close the client, replace its JAR in the **same directory**, preserve the adjacent `wow-ui-sync-data` folder, and reopen it. Existing completed scan-cache rows remain valid; running from a new directory without that folder starts a cold cache. No server JAR replacement, service restart or data migration is needed. See CLIENT-UPDATE.md.
+The `WoW-UI-Sync-Client-1.2.0-alpha-statusfix.zip` follow-up updates only the client. Finish any current transfer, close the client, replace its JAR in the **same directory**, preserve the adjacent `wow-ui-sync-data` folder, and reopen it. Existing completed scan-cache rows remain valid; running from a new directory without that folder starts a cold cache. No server JAR replacement, service restart or data migration is needed. See CLIENT-UPDATE.md.
 
 ## Scan cache and progress
 

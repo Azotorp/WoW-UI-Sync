@@ -6,6 +6,7 @@ import io.github.azotorp.wowuisync.common.protocol.Msg;
 public record SyncStatus(Kind kind, LocalScan scan, Msg.StatusResp server, String base) {
     public enum Kind {
         UP_TO_DATE,
+        SETTINGS_DIFFER,
         LOCAL_CHANGES,
         SERVER_NEWER,
         CONFLICT,

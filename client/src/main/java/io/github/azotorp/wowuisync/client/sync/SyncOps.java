@@ -63,6 +63,15 @@ public final class SyncOps {
         String local = scan.manifest().fingerprint();
         Msg.StatusResp r = c.call(new Msg.StatusReq(account.id(), f.profileId(), local, base), Msg.StatusResp.class);
         String cur = r.currentFingerprint();
+        boolean settingsOnly = false;
+        if (cur != null && !local.equals(cur)) {
+            Manifest remote = cur.equals(base) ? bases.manifest(hp, account.id(), f.profileId()) : null;
+            if (remote == null) {
+                Msg.ManifestResp manifest = c.call(new Msg.ManifestGet(account.id(), f.profileId()), Msg.ManifestResp.class);
+                if (cur.equals(manifest.fingerprint())) remote = new Manifest(manifest.entries());
+            }
+            settingsOnly = remote != null && generalSettingsOnly(ManifestDiff.between(remote, scan.manifest()));
+        }
         SyncStatus.Kind k;
         if (cur == null) {
             k = SyncStatus.Kind.SERVER_EMPTY;
@@ -70,6 +79,8 @@ public final class SyncOps {
             if (!cur.equals(base)) bases.set(hp, account.id(), f.profileId(), scan.manifest());
             base = cur;
             k = SyncStatus.Kind.UP_TO_DATE;
+        } else if (settingsOnly) {
+            k = SyncStatus.Kind.SETTINGS_DIFFER;
         } else if (base == null) {
             k = SyncStatus.Kind.DIFFERENT;
         } else {
@@ -81,6 +92,14 @@ public final class SyncOps {
             else k = SyncStatus.Kind.UP_TO_DATE;
         }
         return new SyncStatus(k, scan, r, base);
+    }
+
+    /** General WTF files are opt-in in both transfer dialogs; SavedVariables are always data. */
+    static boolean generalSettingsOnly(ManifestDiff diff) {
+        if (diff.isEmpty()) return false;
+        return java.util.stream.Stream.of(diff.added(), diff.edited(), diff.removed()).flatMap(List::stream)
+                .allMatch(e -> SyncPaths.isWtf(e.path())
+                        && io.github.azotorp.wowuisync.common.addon.DataMapper.savedVariablesFolder(e.path()) == null);
     }
 
     /** Differences between this PC and the server copy, for "Show details". */

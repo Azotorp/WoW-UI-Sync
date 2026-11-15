@@ -1,4 +1,4 @@
-# Client-only backup/progress update — 1.2.0-alpha
+# Client-only status update — 1.2.0-alpha
 
 1. Let your current upload/pull finish, then close the client.
 2. Copy `client/wow-ui-sync.client.jar` from this ZIP over the client JAR in the **same directory you already run it from**. Keep the old filename if necessary.
@@ -16,3 +16,5 @@ Backup follow-up: Windows copies each selected Interface/WTF folder with Robocop
 Copy, verification, download and apply are separate phases; stale scan text is cleared. Native copy uses indeterminate progress while the OS job runs; verification displays real file/byte counts and a separate normalized path.
 
 Linux validation: 36 Java tests passed, one Windows-only native-copy test skipped locally. Windows and Ubuntu branch CI builds/tests pass, including real Windows Robocopy and the Windows client launch smoke (run 43677960647). Large-install Windows timing still needs user retest. The synthetic Linux backup benchmark improved from 2.536 s to 0.772 s for 10,010 files/51.4 MB. This is not a one-second guarantee for a 3.7 GB Windows installation.
+
+Status follow-up: full-file status previously recommended Push when only opt-in general WTF settings differed, while the default Push selection correctly transferred nothing. Status now says “Add-ons and data match; general WTF settings differ” for that exact case, retaining Show details and the real baseline. General settings remain opt-in. Changes to add-ons, account/character SavedVariables, or server-only add-on content still show real differences. A no-op Push now says only the selected content matches; it no longer claims this entire PC matches. This package includes the earlier scan/progress and native backup fixes.
