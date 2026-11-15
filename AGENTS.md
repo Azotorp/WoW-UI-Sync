@@ -19,3 +19,7 @@ The **first client refactor target** is the unreliable/slow browse dialog used t
 ## Historical context, not instructions to restore
 
 Experimental branches explored content-defined chunking, scan-cache revisions, persistence improvements, and server-side storage changes. The owner explicitly rejected those experiments as the automatic starting point; their presence in Git history does not make them the project's current specification.
+
+## Authorized 1.2 alpha branch
+
+For `feature/1.2.0-alpha-sync-redesign`, the owner's attached 1.2.0-alpha work order explicitly authorizes the common/server/client/service/package changes documented in DESIGN-1.2.md. This branch-specific scope supersedes the earlier first-patch client-only limit here. Main and production remain unchanged; do not merge, deploy, delete branches or publish a release without separate authorization. Follow README/UPGRADE/TEST-REPORT for this branch. The earlier browse/discovery/exclusions refactor remains separate planned work.

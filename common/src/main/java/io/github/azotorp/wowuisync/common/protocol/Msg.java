@@ -64,7 +64,12 @@ public final class Msg {
      */
     public record PushBegin(String accountId, String profileId, String baseFingerprint, boolean delta,
                             List<ManifestEntry> full, List<ManifestEntry> upserts, List<String> removed,
-                            String deviceNickname) {}
+                            String deviceNickname, String expectedCurrentFingerprint) {
+        public PushBegin(String accountId,String profileId,String baseFingerprint,boolean delta,List<ManifestEntry> full,
+                         List<ManifestEntry> upserts,List<String> removed,String deviceNickname) {
+            this(accountId,profileId,baseFingerprint,delta,full,upserts,removed,deviceNickname,baseFingerprint);
+        }
+    }
 
     public record PushNeed(String pushId, List<String> newFiles, List<String> editedFiles, List<String> removedFiles,
                            List<String> missingHashes, Map<String, Long> partialOffsets, long uploadBytes,

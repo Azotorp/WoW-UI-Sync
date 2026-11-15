@@ -40,11 +40,11 @@ class LocalTest {
             assertEquals(s.manifest().fingerprint(), s2.manifest().fingerprint());
 
             List<AddonManager.LocalAddon> addons = AddonManager.list(flavor);
-            assertEquals(1, addons.size());
+            assertEquals(2, addons.size());
             assertEquals(2, addons.get(0).dataFiles().size());
 
             BackupRecord b = Backups.create(db, flavor, Backups.REASON_MANUAL, null, null);
-            assertTrue(Files.isDirectory(flavor.resolve("WTF_" + b.suffix())));
+            assertTrue(Files.isDirectory(flavor.resolve(".wus-backups/" + b.suffix()+"/WTF")));
             AddonManager.deleteAddon(flavor, addons.get(0));
             write(flavor.resolve("WTF/new.txt"), "n");
             assertFalse(Files.exists(flavor.resolve("Interface/AddOns/WeakAuras")));

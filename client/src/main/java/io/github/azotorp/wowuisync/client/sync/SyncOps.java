@@ -104,18 +104,14 @@ public final class SyncOps {
             ups.addAll(d.edited());
             List<String> removed = new ArrayList<>();
             for (ManifestEntry e : d.removed()) removed.add(e.path());
-            msg = new Msg.PushBegin(account.id(), f.profileId(), base, true, null, ups, removed, app.config().deviceNickname);
+            msg = new Msg.PushBegin(account.id(), f.profileId(), base, true, null, ups, removed, app.config().deviceNickname,serverFingerprint);
         } else {
             msg = new Msg.PushBegin(account.id(), f.profileId(), base, false, scan.manifest().entries(), null, null,
-                    app.config().deviceNickname);
+                    app.config().deviceNickname,serverFingerprint);
         }
         try {
             return c.call(msg, Msg.PushNeed.class);
         } catch (io.github.azotorp.wowuisync.common.protocol.ProtocolException e) {
-            if ("conflict".equals(e.code()) && msg.delta()) {
-                return c.call(new Msg.PushBegin(account.id(), f.profileId(), base, false, scan.manifest().entries(), null, null,
-                        app.config().deviceNickname), Msg.PushNeed.class);
-            }
             throw e;
         }
     }
@@ -146,7 +142,10 @@ public final class SyncOps {
         } catch (SQLException ignored) {
             // optional
         }
-        Msg.PushDone done = c.call(new Msg.PushCommit(need.pushId()), Msg.PushDone.class);
+        Msg.PushDone done;
+        try { done = c.call(new Msg.PushCommit(need.pushId()), Msg.PushDone.class); }
+        catch(IOException e) { throw new UserException("Upload finished but commit acknowledgement failed. The server may have committed; reconnect and check status before retrying.",e); }
+        if(!done.fingerprint().equals(scan.manifest().fingerprint())) throw new UserException("Server commit fingerprint does not match the reviewed plan; reconnect and check status.");
         if (done.fingerprint().equals(scan.manifest().fingerprint())) {
             bases.set(c.hostPort(), account.id(), f.profileId(), scan.manifest());
         }
@@ -169,9 +168,9 @@ public final class SyncOps {
 
     public PullSource pullSource(ServerConnection c, Msg.AccountInfo source, Flavor f) throws Exception {
         Msg.ManifestResp m = c.call(new Msg.ManifestGet(source.id(), f.profileId()), Msg.ManifestResp.class);
-        if (m.fingerprint() == null) throw new UserException(source.username() + " has nothing stored for " + f.displayName() + " yet.");
+        if (m.fingerprint() == null) return new PullSource(Manifest.empty(), null, Map.of());
         Manifest man = new Manifest(m.entries());
-        Map<String, ManifestEntry> tocEntries = AddonGrouper.tocEntries(man);
+        Map<String, ManifestEntry> tocEntries = AddonGrouper.tocEntries(man, f.profileId());
         List<String> hashes = new ArrayList<>();
         for (ManifestEntry e : tocEntries.values()) if (e.size() < (1 << 20)) hashes.add(e.sha256());
         Map<String, byte[]> byHash = TransferEngine.fetchToMemory(c, source.id(), f.profileId(), new ArrayList<>(new HashSet<>(hashes)));
@@ -181,6 +180,31 @@ public final class SyncOps {
             if (b != null) tocs.put(e.getKey(), b);
         }
         return new PullSource(man, m.fingerprint(), tocs);
+    }
+
+    public static Map<String, io.github.azotorp.wowuisync.common.addon.TocInfo> localTocs(LocalScan scan, String profile) throws IOException {
+        Map<String,io.github.azotorp.wowuisync.common.addon.TocInfo> out=new HashMap<>();
+        for(var entry:AddonGrouper.tocEntries(scan.manifest(),profile).entrySet()) {
+            Path file=scan.files().get(SyncPaths.key(entry.getValue().path()));
+            if(file!=null && entry.getValue().size()<(1<<20)) out.put(entry.getKey(),io.github.azotorp.wowuisync.common.addon.TocParser.parse(
+                    SyncPaths.addonFolder(entry.getValue().path()),Files.readAllBytes(file)));
+        }
+        return out;
+    }
+    public static PullSource localSource(LocalScan scan,String profile) throws IOException {
+        Map<String,byte[]> bytes=new HashMap<>();
+        for(var entry:AddonGrouper.tocEntries(scan.manifest(),profile).entrySet()) {
+            if(entry.getValue().size()<(1<<20)) bytes.put(entry.getKey(),Files.readAllBytes(scan.files().get(SyncPaths.key(entry.getValue().path()))));
+        }
+        return new PullSource(scan.manifest(),scan.manifest().fingerprint(),bytes);
+    }
+    public Msg.PullPlan pullPlan(PullSource src, LocalScan scan, PullSelection sel, String profile) throws IOException {
+        var target=io.github.azotorp.wowuisync.common.addon.PullPlanner.target(src.manifest(),scan.manifest(),sel,
+                io.github.azotorp.wowuisync.client.ui.PullSelectionDialog.parse(src.tocs()),localTocs(scan,profile));
+        var diff=ManifestDiff.between(scan.manifest(),target);
+        return new Msg.PullPlan(diff.added(),diff.edited(),diff.removed().stream().map(ManifestEntry::path).toList(),
+                diff.added().stream().mapToLong(ManifestEntry::size).sum()+diff.edited().stream().mapToLong(ManifestEntry::size).sum(),
+                src.fingerprint(),target.fingerprint().equals(src.fingerprint()));
     }
 
     public Msg.PullPlan pullPlan(ServerConnection c, Msg.AccountInfo source, Flavor f, LocalScan scan, PullSelection sel, PullMode mode)
@@ -195,7 +219,13 @@ public final class SyncOps {
      */
     public boolean pullApply(ServerConnection c, Msg.AccountInfo source, Flavor f, LocalScan scan, Msg.PullPlan plan,
                              TransferControl control, TransferEngine.Sink sink, Backups.Progress backupProgress) throws Exception {
-        Path flavor = f.path();
+        return pullApply(c,source,f,scan,plan,control,sink,backupProgress,true,true);
+    }
+    public boolean pullApply(ServerConnection c, Msg.AccountInfo source, Flavor f, LocalScan scan, Msg.PullPlan plan,
+                             TransferControl control, TransferEngine.Sink sink, Backups.Progress backupProgress, boolean backupInterface, boolean backupWtf) throws Exception {
+        Path flavor = f.path().toAbsolutePath().normalize();
+        Msg.ManifestResp current=c.call(new Msg.ManifestGet(source.id(),f.profileId()),Msg.ManifestResp.class);
+        if(!java.util.Objects.equals(current.fingerprint(),plan.sourceFingerprint()))throw new UserException("Server copy changed after preview. Start Pull again; live files are unchanged.");
         List<ManifestEntry> writes = new ArrayList<>(plan.newFiles());
         writes.addAll(plan.editedFiles());
 
@@ -223,7 +253,11 @@ public final class SyncOps {
         }
 
         // Local backup before anything changes.
-        Backups.create(app.db(), flavor, Backups.reasonBeforePull(source.username()), source.username(), backupProgress);
+        control.checkpoint();
+        try {
+            Backups.create(app.db(), flavor, Backups.reasonBeforePull(source.username()), source.username(), backupProgress,
+                    backupInterface, backupWtf, control::cancelled);
+        } catch(java.io.InterruptedIOException e) { throw new CancelledException(); }
 
         // Download.
         Path staged = app.paths().stagedObjects();
@@ -233,21 +267,50 @@ public final class SyncOps {
         new TransferEngine(c, app.config().dataConnections, control, sink, stats).download(source.id(), f.profileId(), items, staged);
         control.checkpoint();
 
+        // Stage verified local reusable content before any live path can be replaced.
+        Files.createDirectories(staged);
+        for(ManifestEntry e:writes) {
+            control.checkpoint();
+            Path reusable=localByHash.get(e.sha256());
+            if(reusable!=null) {
+                Path copy=staged.resolve(e.sha256()+".copy");
+                Files.copy(reusable,copy,StandardCopyOption.REPLACE_EXISTING);
+                if(!io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(copy).equals(e.sha256())) {
+                    Files.deleteIfExists(copy);throw new UserException("Local file changed while staging; retry Pull. Live files unchanged.");
+                }
+                Files.move(copy,staged.resolve(e.sha256()),StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+        List<String> affected=new ArrayList<>(plan.removedFiles());
+        for(ManifestEntry e:writes)affected.add(e.path());
+        for(String path:affected) {
+            Path target=resolve(flavor,path);
+            ManifestEntry before=scan.manifest().byKey().get(SyncPaths.key(path));
+            Path actual=scan.files().getOrDefault(SyncPaths.key(path),target);
+            if(before==null ? Files.exists(actual,LinkOption.NOFOLLOW_LINKS)
+                    : !Files.isRegularFile(actual,LinkOption.NOFOLLOW_LINKS)||!io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(actual).equals(before.sha256())) {
+                throw new UserException("Local files changed after preview; retry Pull. No live files have been changed.");
+            }
+        }
+        Path journal=app.paths().root().resolve("pending-pull.json");
+        Files.write(journal,io.github.azotorp.wowuisync.common.json.Json.toBytes(java.util.Map.of("installation",flavor.toString(),"affectedPaths",affected,
+                "recovery","If interrupted during apply, restore this operation's selected backup categories from Backups, then retry Pull.")));
         // Apply writes: temp file next to the target, then atomic rename.
         boolean addonsChanged = false;
+        long applied=0,totalApply=writes.size()+plan.removedFiles().size();
         for (ManifestEntry e : writes) {
+            control.checkpoint();
             Path target = resolve(flavor, e.path());
             Path existingCase = scan.files().get(SyncPaths.key(e.path()));
             if (existingCase != null && !existingCase.equals(target) && Files.exists(existingCase, LinkOption.NOFOLLOW_LINKS)) {
                 // Same path with different letter case (case-sensitive file systems): replace the old name.
                 Files.delete(existingCase);
             }
-            Path src = localByHash.get(e.sha256());
-            if (src == null) src = staged.resolve(e.sha256());
+            Path src = staged.resolve(e.sha256());
             Files.createDirectories(target.getParent());
             Path tmp = target.resolveSibling(target.getFileName() + ".wus-" + UUID.randomUUID().toString().substring(0, 8) + ".tmp");
             Files.copy(src, tmp, StandardCopyOption.REPLACE_EXISTING);
-            if (Files.size(tmp) != e.size()) {
+            if (Files.size(tmp) != e.size() || !io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(tmp).equals(e.sha256())) {
                 Files.deleteIfExists(tmp);
                 throw new UserException("Writing " + e.path() + " failed (size mismatch). Your backup is intact; try again.");
             }
@@ -257,18 +320,22 @@ public final class SyncOps {
                 Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
             }
             if (SyncPaths.addonFolder(e.path()) != null) addonsChanged = true;
+            if(backupProgress!=null)backupProgress.update("Applied "+e.path(),++applied,totalApply);
         }
         // Removals.
         for (String p : plan.removedFiles()) {
+            control.checkpoint();
             Path abs = scan.files().get(SyncPaths.key(p));
             if (abs == null) abs = resolve(flavor, p);
             Path stop = SyncPaths.addonFolder(p) != null ? flavor.resolve("Interface").resolve("AddOns") : flavor.resolve("WTF");
             FileOps.deleteAndPrune(abs, stop);
             if (SyncPaths.addonFolder(p) != null) addonsChanged = true;
+            if(backupProgress!=null)backupProgress.update("Removed "+p,++applied,totalApply);
         }
         // Staged objects are no longer needed.
         for (String h : needed.keySet()) Files.deleteIfExists(staged.resolve(h));
 
+        Files.deleteIfExists(journal);
         app.db().setApplied(flavor.toString(), source.username(), source.id(), c.hostPort());
         bases.clearAll(f.profileId());
         if (plan.selectsEverything()) {
@@ -290,6 +357,11 @@ public final class SyncOps {
     /** Resolves a relative synced path inside the flavor folder, refusing anything that escapes it. */
     static Path resolve(Path flavor, String rel) throws UserException {
         if (!SyncPaths.isSafeRelative(rel) || !SyncPaths.isSyncedPath(rel)) throw new UserException("Refusing unsafe path " + rel);
+        Path absoluteRoot=flavor.toAbsolutePath().normalize();
+        Path candidate=absoluteRoot.resolve(rel).normalize();
+        for(Path cursor=candidate;cursor!=null && cursor.startsWith(absoluteRoot);cursor=cursor.getParent()) {
+            if(Files.isSymbolicLink(cursor)) throw new UserException("Refusing a symlink in sync destination");
+        }
         Path p = flavor.resolve(rel.replace('/', java.io.File.separatorChar)).normalize();
         if (!p.startsWith(flavor.normalize())) throw new UserException("Refusing unsafe path " + rel);
         return p;

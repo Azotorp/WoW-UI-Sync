@@ -51,6 +51,7 @@ public final class TransferEngine {
         void stats(TransferStats s);
 
         void connectionLost(String message);
+        default void current(String description) {}
     }
 
     /** A file to upload: content hash, size, local path (relative path for sorting and categories). */
@@ -446,6 +447,7 @@ public final class TransferEngine {
                     if (failure.get() != null) return;
                     try {
                         if (w == null) w = conn.openData();
+                        sink.current(job.describe());
                         job.run(w);
                         failures = 0;
                         break;

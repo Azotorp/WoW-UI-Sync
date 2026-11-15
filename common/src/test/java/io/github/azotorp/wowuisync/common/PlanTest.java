@@ -50,9 +50,9 @@ class PlanTest {
         assertEquals("Deadly Boss Mods", dbm.title());
         List<AddonGroup> g = AddonGrouper.group(List.of("WeakAuras", "WeakAuras_Options", "DBM-Core", "DBM-Raids", "Details"),
                 Map.of("weakauras", wa, "weakauras_options", waOpt, "dbm-core", dbm, "dbm-raids", dbmRaids));
-        assertEquals(4, g.size());
+        assertEquals(5, g.size());
         AddonGroup w = g.stream().filter(x -> x.mainFolder().equals("WeakAuras")).findFirst().orElseThrow();
-        assertEquals(2, w.folders().size());
+        assertEquals(1, w.folders().size());
     }
 
     @Test
@@ -60,7 +60,7 @@ class PlanTest {
         Set<String> known = Set.of("weakauras", "details");
         assertEquals(DataMapper.Kind.ADDON_DATA, DataMapper.classify("WTF/Account/ACC/SavedVariables/WeakAuras.lua", known).kind());
         assertEquals(DataMapper.Kind.ADDON_DATA, DataMapper.classify("WTF/Account/ACC/Realm/Char/SavedVariables/Details.lua.bak", known).kind());
-        assertEquals(DataMapper.Kind.GENERAL, DataMapper.classify("WTF/Account/ACC/SavedVariables/Blizzard_X.lua", known).kind());
+        assertEquals(DataMapper.Kind.ADDON_DATA, DataMapper.classify("WTF/Account/ACC/SavedVariables/Blizzard_X.lua", known).kind());
         assertEquals(DataMapper.Kind.GENERAL, DataMapper.classify("WTF/Account/ACC/macros-cache.txt", known).kind());
 
         Manifest source = new Manifest(List.of(
@@ -77,12 +77,12 @@ class PlanTest {
         ManifestDiff d = PullPlanner.plan(source, local, new PullSelection(List.of("WeakAuras"), List.of(), false), PullMode.REPLACE);
         assertEquals(0, d.added().size());
         assertEquals(1, d.edited().size());
-        assertEquals(1, d.removed().size()); // Other addon folder; its data stays
+        assertEquals(0, d.removed().size()); // Unselected folders and data stay
         ManifestDiff k = PullPlanner.plan(source, local, new PullSelection(List.of("WeakAuras", "Details"), List.of("WeakAuras"), true), PullMode.KEEP);
         assertEquals(1, k.added().size());
         assertEquals(3, k.edited().size());
         assertEquals(0, k.removed().size());
-        assertTrue(PullPlanner.selectsEverything(source, new PullSelection(List.of("WeakAuras", "Details"), List.of("WeakAuras", "Details"), true), PullMode.REPLACE));
+        assertFalse(PullPlanner.selectsEverything(source, new PullSelection(List.of("WeakAuras", "Details"), List.of("WeakAuras", "Details"), true), PullMode.REPLACE));
     }
 
     @Test

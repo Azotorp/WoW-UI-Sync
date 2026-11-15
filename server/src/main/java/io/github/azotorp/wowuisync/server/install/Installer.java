@@ -45,7 +45,7 @@ public final class Installer {
         Path data;
         while (true) {
             String def = dataArg != null ? dataArg : Paths.get(System.getProperty("user.home"), "wow-ui-sync-data").toString();
-            String s = in.line("Data folder (full path)", def);
+            String s = dataArg != null ? dataArg : in.line("Data folder (full path)", def);
             Path p = Paths.get(s);
             if (!p.isAbsolute()) {
                 in.println("  Please enter a full path.");
@@ -62,6 +62,7 @@ public final class Installer {
             }
         }
         DataLayout layout = new DataLayout(data);
+        try(var lease=io.github.azotorp.wowuisync.server.security.StoreLease.acquire(data)) {
         if (Files.exists(layout.db())) {
             try (ServerDb db = ServerDb.open(layout.db(), layout.dbBackups())) {
                 if (db.root().isPresent()) {
@@ -74,7 +75,7 @@ public final class Installer {
         // 3. Port and public host
         int port;
         while (true) {
-            String s = in.line("Port", String.valueOf(Defaults.PORT));
+            String s = (System.getProperty("wowuisync.installPort")!=null ? System.getProperty("wowuisync.installPort") : in.line("Port", String.valueOf(Defaults.PORT)));
             try {
                 port = Integer.parseInt(s);
                 if (port >= 1025 && port <= 65535) break;
@@ -97,6 +98,7 @@ public final class Installer {
         ServerConfig cfg = new ServerConfig();
         cfg.dataDir = data.toString();
         cfg.port = port;
+        cfg.bindAddress=System.getProperty("wowuisync.installBind",cfg.bindAddress);
         cfg.publicHost = host;
         cfg.validate();
         Files.createDirectories(layout.keys());
@@ -107,7 +109,7 @@ public final class Installer {
         Files.createDirectories(layout.dbBackups());
         ConfigIO.write(layout.config(), cfg);
         try {
-            ConfigIO.write(ConfigIO.jarSideConfig(), cfg);
+            if(dataArg==null)ConfigIO.write(ConfigIO.jarSideConfig(), cfg);
         } catch (Exception e) {
             in.println("Note: could not write server.json next to the jar (" + e.getMessage() + "). Start the server with --data " + data);
         }
@@ -143,10 +145,12 @@ public final class Installer {
         in.println("");
         in.println("Open the port in your firewall, for example:  sudo ufw allow " + port + "/tcp");
         in.println("For access from the internet on a home connection, forward TCP port " + port + " on your router to this machine.");
-        in.println("Start the server with scripts/start.sh (Linux/macOS) or scripts\\start.bat (Windows).");
+        in.println("Start the generated systemd service, or use: java -jar wow-ui-sync.server.jar run --data <data-directory>");
         in.println("");
-        return in.yesNo("Start the server now in this terminal?", false) ? data : null;
+        return Boolean.getBoolean("wowuisync.noStart") ? null : in.yesNo("Start the server now in this terminal?", false) ? data : null;
     }
+
+        }
 
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();

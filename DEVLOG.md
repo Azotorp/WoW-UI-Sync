@@ -1,3 +1,11 @@
+## Installer follow-up: optional UFW port prompt
+
+Added an explicit post-install TCP-port allow prompt for active UFW and remote bind addresses. Existing Java binaries remain unchanged. Twenty service/helper tests pass, including nine firewall-policy and result-verification cases. No live firewall changes were performed.
+
+# 1.2.0-alpha branch update — 2026-11-14
+
+Implemented from main 4076848 without importing defunct 1.1 implementations. See DESIGN-1.2.md and TEST-REPORT.md for the final behavior and evidence. Separate test services only; no production deployment or main merge.
+
 # WoW UI Sync — Dev Log
 
 WoW UI Sync backs up and syncs your entire World of Warcraft UI setup (addons, account-wide settings, and per-character SavedVariables) between PCs, through a server you host yourself.

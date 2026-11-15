@@ -25,7 +25,7 @@ public final class FlavorDetector {
                 boolean underscored = name.length() > 2 && name.startsWith("_") && name.endsWith("_");
                 boolean marker = hasMarker(p);
                 boolean content = Files.isDirectory(p.resolve("WTF")) || Files.isDirectory(p.resolve("Interface"));
-                if (marker && content) out.add(new Flavor(name, p, Profiles.profileIdFromFolder(name), true));
+                if (marker) out.add(new Flavor(name, p, Profiles.profileIdFromFolder(name), true));
                 else if (underscored) out.add(new Flavor(name, p, Profiles.profileIdFromFolder(name), false));
             }
         } catch (IOException e) {

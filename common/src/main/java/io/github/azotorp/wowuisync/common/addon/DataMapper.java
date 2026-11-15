@@ -26,7 +26,8 @@ public final class DataMapper {
 
     /**
      * Classifies a path. {@code addonFoldersLc} is the set of known addon folder names (lower case);
-     * SavedVariables of unknown folders (e.g. {@code Blizzard_*}) are general settings.
+     * SavedVariables of unknown folders use an explicit data-only token, never General.
+     * Declaration-aware transfer planning uses AddonCatalog; this overload is the legacy filename fallback.
      */
     public static Classification classify(String path, Set<String> addonFoldersLc) {
         String folder = SyncPaths.addonFolder(path);
@@ -35,6 +36,7 @@ public final class DataMapper {
         if (sv != null && addonFoldersLc.contains(sv.toLowerCase(Locale.ROOT))) {
             return new Classification(Kind.ADDON_DATA, sv);
         }
+        if (sv != null) return new Classification(Kind.ADDON_DATA, "@data:" + AddonCatalog.variableKey(path));
         return new Classification(Kind.GENERAL, null);
     }
 }

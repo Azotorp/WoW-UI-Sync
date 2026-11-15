@@ -33,6 +33,9 @@ public final class ClientMain {
             ClientApp app = new ClientApp(paths, cfg, db);
             Theme.apply(cfg.theme, false);
             SwingUtilities.invokeLater(() -> {
+                if(Files.exists(paths.root().resolve("pending-pull.json"))) JOptionPane.showMessageDialog(null,
+                        "A previous Pull was interrupted during apply. Restore the relevant snapshot from Backups before retrying if needed.\nRecovery details: "
+                        +paths.root().resolve("pending-pull.json"),Version.APP_NAME,JOptionPane.WARNING_MESSAGE);
                 MainWindow w = new MainWindow(app);
                 w.setVisible(true);
                 w.start();

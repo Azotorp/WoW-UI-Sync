@@ -55,51 +55,61 @@ public final class Backups {
     /** Makes a full backup. Checks free space first. */
     public static BackupRecord create(ClientDb db, Path flavor, String reason, String sourceAccount, Progress progress)
             throws IOException, SQLException, UserException {
-        String account = ClientApp.safeName(appliedAccount(db, flavor));
-        Path iface = flavor.resolve("Interface");
-        Path wtf = flavor.resolve("WTF");
-        FileOps.TreeSize si = FileOps.size(iface);
-        FileOps.TreeSize sw = FileOps.size(wtf);
-        long need = si.bytes() + sw.bytes();
-        long free = FileOps.usableSpace(flavor);
-        if (need + (64L << 20) > free) {
-            throw new UserException("Not enough free disk space for a backup: it needs " + Sizes.human(need) + " but only "
-                    + Sizes.human(free) + " is free on that drive. Delete old backups (Backups) or free up space.");
-        }
-        LocalDateTime now = LocalDateTime.now();
-        String suffix = account + "_" + now.format(STAMP);
-        Path bi = flavor.resolve("Interface_" + suffix);
-        Path bw = flavor.resolve("WTF_" + suffix);
-        int n = 1;
-        while (Files.exists(bi) || Files.exists(bw)) {
-            // Two backups in the same second: wait a moment for a new timestamp.
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IOException("Interrupted");
-            }
-            now = LocalDateTime.now();
-            suffix = account + "_" + now.format(STAMP);
-            bi = flavor.resolve("Interface_" + suffix);
-            bw = flavor.resolve("WTF_" + suffix);
-            if (++n > 5) throw new IOException("Could not choose a backup folder name.");
-        }
-        long total = si.files() + sw.files();
+        return create(db,flavor,reason,sourceAccount,progress,true,true,()->false);
+    }
+
+    public record Snapshot(int schema, boolean iface, boolean wtf, Map<String,String> hashes) {}
+    private static Path snapshotRoot(Path flavor,String suffix) { return flavor.resolve(".wus-backups").resolve(suffix); }
+    public static BackupRecord create(ClientDb db, Path flavor, String reason, String sourceAccount, Progress progress,
+                                       boolean includeInterface, boolean includeWtf, java.util.function.BooleanSupplier cancelled)
+            throws IOException, SQLException, UserException {
+        if(!includeInterface && !includeWtf) return null;
+        String account=ClientApp.safeName(appliedAccount(db,flavor));
+        Path iface=flavor.resolve("Interface"),wtf=flavor.resolve("WTF");
+        FileOps.TreeSize si=includeInterface?FileOps.size(iface):new FileOps.TreeSize(0,0);
+        FileOps.TreeSize sw=includeWtf?FileOps.size(wtf):new FileOps.TreeSize(0,0);
+        long need=si.bytes()+sw.bytes(),total=si.files()+sw.files();
+        if(need+(64L<<20)>FileOps.usableSpace(flavor)) throw new UserException("Insufficient space for selected backup categories; pull has not changed live files.");
+        LocalDateTime now=LocalDateTime.now();
+        String suffix=account+"_"+now.format(STAMP)+"_"+java.util.UUID.randomUUID().toString().substring(0,8);
+        Path destination=snapshotRoot(flavor,suffix),stage=flavor.resolve(".wus-backups").resolve(".partial-"+java.util.UUID.randomUUID());
+        Files.createDirectories(stage);
+        Map<String,String> hashes=new java.util.TreeMap<>();
+        long[] done={0};
         try {
-            final long ifFiles = si.files();
-            FileOps.copyTree(iface, bi, (f, b) -> { if (progress != null) progress.update("Backing up Interface", f, total); });
-            FileOps.copyTree(wtf, bw, (f, b) -> { if (progress != null) progress.update("Backing up WTF", ifFiles + f, total); });
-        } catch (IOException e) {
-            FileOps.deleteTree(bi);
-            FileOps.deleteTree(bw);
-            throw new IOException("The backup failed and was removed: " + e.getMessage(), e);
+            for(String category:List.of("Interface","WTF")) {
+                if(category.equals("Interface")?!includeInterface:!includeWtf) continue;
+                Path src=flavor.resolve(category),dst=stage.resolve(category);
+                if(!Files.exists(src,java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
+                Files.walkFileTree(src,new java.nio.file.SimpleFileVisitor<>() {
+                    private void check() throws IOException { if(cancelled.getAsBoolean()||Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("Backup cancelled; live files unchanged"); }
+                    @Override public java.nio.file.FileVisitResult preVisitDirectory(Path d,java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                        check();Files.createDirectories(dst.resolve(src.relativize(d)));return java.nio.file.FileVisitResult.CONTINUE;
+                    }
+                    @Override public java.nio.file.FileVisitResult visitFile(Path file,java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                        check();if(!attrs.isRegularFile()) throw new IOException("Backup refuses symlinks or special files");
+                        Path target=dst.resolve(src.relativize(file));
+                        String before=io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(file);
+                        Files.copy(file,target,java.nio.file.StandardCopyOption.COPY_ATTRIBUTES);
+                        String copied=io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(target);
+                        var after=Files.readAttributes(file,java.nio.file.attribute.BasicFileAttributes.class);
+                        if(!before.equals(copied)||attrs.size()!=after.size()||!attrs.lastModifiedTime().equals(after.lastModifiedTime())) throw new IOException("A live file changed during backup; close WoW and external tools then retry");
+                        hashes.put(category+"/"+src.relativize(file).toString().replace('\\','/'),copied);
+                        done[0]++;if(progress!=null)progress.update("Backing up "+category+"/"+src.relativize(file),done[0],total);
+                        return java.nio.file.FileVisitResult.CONTINUE;
+                    }
+                });
+            }
+            if(cancelled.getAsBoolean()) throw new java.io.InterruptedIOException("Backup cancelled");
+            Files.write(stage.resolve("backup.json"),io.github.azotorp.wowuisync.common.json.Json.toBytes(new Snapshot(1,includeInterface,includeWtf,hashes)));
+            Files.move(stage,destination,java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            BackupRecord rec=new BackupRecord(flavor.toString(),suffix,account,now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),reason,sourceAccount,total,need);
+            db.addBackup(rec);return rec;
+        } catch(IOException|SQLException e) {
+            FileOps.deleteTree(stage);
+            // A finished snapshot may exist even if recording it failed. Never report it as a successful backup.
+            throw e;
         }
-        BackupRecord rec = new BackupRecord(flavor.toString(), suffix, account,
-                now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(), reason, sourceAccount, total, need);
-        db.addBackup(rec);
-        ClientLog.LOG.info("Backup created: " + suffix + " (" + reason + ")");
-        return rec;
     }
 
     /** Backups for a flavor, newest first: database records plus folders found on disk (reason "unknown"). */
@@ -128,6 +138,21 @@ public final class Backups {
                 }
             }
         }
+        Path snapshots=flavor.resolve(".wus-backups");
+        if(Files.isDirectory(snapshots)) try(var entries=Files.list(snapshots)) {
+            for(Path entry:(Iterable<Path>)entries::iterator) {
+                String suffix=entry.getFileName().toString();
+                if(suffix.startsWith(".")||!Files.isRegularFile(entry.resolve("backup.json")))continue;
+                BackupRecord record=fromDb.get(suffix);
+                if(record==null) {
+                    Snapshot state=io.github.azotorp.wowuisync.common.json.Json.fromBytes(Files.readAllBytes(entry.resolve("backup.json")),Snapshot.class);
+                    if(state.schema()!=1)continue;
+                    record=new BackupRecord(flavor.toString(),suffix,"local",Files.getLastModifiedTime(entry.resolve("backup.json")).toMillis(),"recovered completed snapshot",null,state.hashes().size(),-1);
+                    db.addBackup(record);
+                }
+                bySuffix.put(suffix,record);
+            }
+        }
         // Records whose folders were removed by hand are dropped.
         for (String s : fromDb.keySet()) if (!bySuffix.containsKey(s)) db.deleteBackup(flavor.toString(), s);
         List<BackupRecord> out = new ArrayList<>(bySuffix.values());
@@ -136,6 +161,7 @@ public final class Backups {
     }
 
     public static void delete(ClientDb db, Path flavor, BackupRecord b) throws IOException, SQLException {
+        FileOps.deleteTree(snapshotRoot(flavor,b.suffix()));
         FileOps.deleteTree(flavor.resolve("Interface_" + b.suffix()));
         FileOps.deleteTree(flavor.resolve("WTF_" + b.suffix()));
         db.deleteBackup(flavor.toString(), b.suffix());
@@ -148,13 +174,31 @@ public final class Backups {
      */
     public static void restore(ClientDb db, Path flavor, String profileId, BackupRecord b, Progress progress)
             throws IOException, SQLException, UserException {
-        Path bi = flavor.resolve("Interface_" + b.suffix());
-        Path bw = flavor.resolve("WTF_" + b.suffix());
-        if (!Files.isDirectory(bi) && !Files.isDirectory(bw)) throw new UserException("That backup's folders are missing.");
-        create(db, flavor, REASON_RESTORE, null, progress);
-        if (progress != null) progress.update("Restoring", 0, -1);
-        FileOps.mirror(bi, flavor.resolve("Interface"), (f, by) -> { if (progress != null) progress.update("Restoring Interface", f, -1); });
-        FileOps.mirror(bw, flavor.resolve("WTF"), (f, by) -> { if (progress != null) progress.update("Restoring WTF", f, -1); });
+        Path snapshot=snapshotRoot(flavor,b.suffix());
+        Path metadata=snapshot.resolve("backup.json");
+        if(Files.isRegularFile(metadata)) {
+            Snapshot state=io.github.azotorp.wowuisync.common.json.Json.fromBytes(Files.readAllBytes(metadata),Snapshot.class);
+            if(state.schema()!=1)throw new UserException("Unsupported backup schema");
+            for(var e:state.hashes().entrySet()) {
+                Path file=snapshot.resolve(e.getKey()).normalize();
+                if(!file.startsWith(snapshot)||!Files.isRegularFile(file)||!io.github.azotorp.wowuisync.common.hash.Hashing.sha256Hex(file).equals(e.getValue())) throw new UserException("Backup integrity check failed; live files unchanged");
+            }
+            create(db,flavor,REASON_RESTORE,null,progress,state.iface(),state.wtf(),()->false);
+            for(String category:List.of("Interface","WTF")) {
+                if(category.equals("Interface")?!state.iface():!state.wtf()) continue;
+                Path stage=flavor.resolve(".wus-restore-"+java.util.UUID.randomUUID());
+                FileOps.copyTree(snapshot.resolve(category),stage,(f,bytes)->{if(progress!=null)progress.update("Restoring "+category,f,-1);});
+                FileOps.deleteTree(flavor.resolve(category));
+                if(Files.exists(stage))Files.move(stage,flavor.resolve(category),java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            }
+        } else {
+            Path bi=flavor.resolve("Interface_"+b.suffix()),bw=flavor.resolve("WTF_"+b.suffix());
+            if(!Files.isDirectory(bi)&&!Files.isDirectory(bw))throw new UserException("Backup folders missing");
+            create(db,flavor,REASON_RESTORE,null,progress);
+            // Legacy backups lack category metadata. Restore only present categories.
+            if(Files.isDirectory(bi)){FileOps.deleteTree(flavor.resolve("Interface"));FileOps.copyTree(bi,flavor.resolve("Interface"),null);}
+            if(Files.isDirectory(bw)){FileOps.deleteTree(flavor.resolve("WTF"));FileOps.copyTree(bw,flavor.resolve("WTF"),null);}
+        }
         db.setApplied(flavor.toString(), b.account(), null, null);
         db.clearBases(profileId);
         ClientLog.LOG.info("Restored backup " + b.suffix());

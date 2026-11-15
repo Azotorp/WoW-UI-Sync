@@ -1,12 +1,13 @@
 name: build
-
 on:
   push:
   pull_request:
-
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -14,9 +15,21 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Build
-        run: mvn -B clean package
+      - run: mvn -B clean package
+      - run: java -jar dist/wow-ui-sync-client.jar --version
+      - run: java -jar dist/wow-ui-sync-server.jar version
+      - name: Windows GUI launch smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $process = Start-Process java -ArgumentList '-jar', 'dist/wow-ui-sync-client.jar' -PassThru
+          Start-Sleep -Seconds 5
+          if ($process.HasExited) { throw 'Client exited during Windows GUI startup' }
+          Stop-Process -Id $process.Id
+      - name: Linux service-tool tests
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s tests -v
       - uses: actions/upload-artifact@v4
         with:
-          name: wow-ui-sync-jars
+          name: wow-ui-sync-jars-${{ runner.os }}
           path: dist/

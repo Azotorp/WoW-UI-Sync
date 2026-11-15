@@ -82,7 +82,7 @@ public final class ConnectionHandler implements Runnable {
                     "Please update WoW UI Sync to version " + Version.MIN_APP_VERSION + " or newer.", null, Version.MIN_APP_VERSION));
             return;
         }
-        if (hello.protocolVersion() > Version.PROTOCOL_VERSION && Version.PROTOCOL_VERSION < minPeerFor(hello)) {
+        if (hello.protocolVersion() > Version.PROTOCOL_VERSION) {
             wire.send(helloFrame.requestId(), new Msg.LoginFail("version",
                     "This server is outdated (version " + Version.APP_VERSION + "). Ask its owner to update it.", null, null));
             return;

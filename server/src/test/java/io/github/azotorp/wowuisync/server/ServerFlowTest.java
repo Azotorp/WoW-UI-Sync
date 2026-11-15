@@ -73,6 +73,10 @@ class ServerFlowTest {
         t.start();
         Thread.sleep(1500);
         try {
+            try(Wire legacy=connect(port)) {
+                Frame rejected=legacy.call(new Msg.Hello(1,"1.0.0",Codec.supported(),"legacy","legacy"));
+                assertEquals("version",rejected.message(Msg.LoginFail.class).reason());
+            }
             Wire c = connect(port);
             Msg.HelloOk ok = c.call(new Msg.Hello(Version.PROTOCOL_VERSION, Version.APP_VERSION, Codec.supported(), "dev1", "Test PC"), Msg.HelloOk.class);
             c.setCodec(Codec.byName(ok.codec()));
@@ -81,6 +85,8 @@ class ServerFlowTest {
             Msg.LoginOk login = c.call(new Msg.LoginPassword("root", "password1"), Msg.LoginOk.class);
             String rootId = login.accountId();
 
+            ProtocolException empty=assertThrows(ProtocolException.class,()->c.call(new Msg.PushBegin(rootId,"forever",null,false,List.of(),null,null,"empty"),Msg.PushNeed.class));
+            assertEquals("invalid",empty.code());
             // Push two files.
             byte[] a = "-- addon".repeat(100).getBytes(StandardCharsets.UTF_8);
             byte[] b = "saved = {}".getBytes(StandardCharsets.UTF_8);
@@ -109,6 +115,8 @@ class ServerFlowTest {
             assertEquals("Test PC", st.lastPushDevice());
 
             // Delta push with no changes.
+            ProtocolException stale=assertThrows(ProtocolException.class,()->c.call(new Msg.PushBegin(rootId,"forever",null,false,man,null,null,"stale"),Msg.PushNeed.class));
+            assertEquals("conflict",stale.code());
             Msg.PushNeed need2 = c.call(new Msg.PushBegin(rootId, "forever", done.fingerprint(), true, null, List.of(), List.of(), "Test PC"), Msg.PushNeed.class);
             assertTrue(need2.missingHashes().isEmpty());
             c.call(new Msg.PushCancel(need2.pushId()), Msg.Ok.class);

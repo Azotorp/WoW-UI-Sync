@@ -1,3 +1,5 @@
+> Historical 1.0 foundation. For the 1.2 alpha branch, [DESIGN-1.2.md](DESIGN-1.2.md) supersedes conflicting grouping, selection, backup, protocol and lifecycle behavior.
+
 # WoW UI Sync — Design
 
 Self-hosted backup, sync, and setup switching for your whole World of Warcraft UI: addons, account-wide settings, and per-character SavedVariables.

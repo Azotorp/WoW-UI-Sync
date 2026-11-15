@@ -1,0 +1,8 @@
+{
+  "CustomGameMenuButtons": "## Title: |cff00CCFFCustom Game Menu Buttons|r\n## SavedVariables: CustomGameMenuButtonsDB\n## OptionalDeps: ElvUI, EllesmereUI, EllesmereUIBlizzardSkin",
+  "CustomGameMenuButtons-ForeverAuras": "## Title: |cff22A417Custom Game Menu Buttons - ForeverAuras|r\n## SavedVariables: CustomGameMenuButtons_ForeverAurasDB\n## OptionalDeps: ElvUI, EllesmereUI, EllesmereUIBlizzardSkin, ForeverAurasMainMenuButton\n## Dependencies: CustomGameMenuButtons, ForeverAuras",
+  "CustomGameMenuButtons-ReloadUI": "## Title: |cffFF0000Custom Game Menu Buttons - Reload UI|r\n## SavedVariables: CustomGameMenuButtons_ReloadUIDB\n## OptionalDeps: ElvUI, EllesmereUI, EllesmereUIBlizzardSkin, ReloadUI_MainMenuButton\n## Dependencies: CustomGameMenuButtons",
+  "EllesmereUIBags": "## Title: |cff0cd29fEllesmereUI|r Bags\n## Group: EllesmereUI\n## Dependencies: EllesmereUI\n## SavedVariables: EllesmereUIBagsDB, EllesmereUIBagsInventoryDB",
+  "EllesmereUIChat": "## Title: |cff0cd29fEllesmereUI|r Chat\n## Group: EllesmereUI\n## Dependencies: EllesmereUI\n## SavedVariables: EllesmereUIChatDB\n## SavedVariablesPerCharacter: EllesmereUIChatScrollDB",
+  "EllesmereUICustomTags": "## Title: |cffff8000EllesmereUI|r Custom Tags\n## Dependencies: EllesmereUI"
+}

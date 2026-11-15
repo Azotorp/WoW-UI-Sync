@@ -47,16 +47,17 @@ public final class AddonManager {
         }
         Set<String> known = new HashSet<>();
         for (String f : folders) known.add(f.toLowerCase(Locale.ROOT));
+        var inventory=new io.github.azotorp.wowuisync.common.manifest.Manifest(folders.stream().map(f ->
+                new io.github.azotorp.wowuisync.common.manifest.ManifestEntry("Interface/AddOns/"+f+"/metadata.toc",0,"a".repeat(64))).toList());
+        var catalog=new io.github.azotorp.wowuisync.common.addon.AddonCatalog(inventory,tocs);
         Map<String, List<Path>> dataByFolder = new HashMap<>();
         Path account = flavor.resolve("WTF").resolve("Account");
         if (Files.isDirectory(account)) {
             try (Stream<Path> s = Files.walk(account)) {
                 for (Path p : (Iterable<Path>) s.filter(Files::isRegularFile)::iterator) {
                     String rel = flavor.relativize(p).toString().replace('\\', '/');
-                    DataMapper.Classification c = DataMapper.classify(rel, known);
-                    if (c.kind() == DataMapper.Kind.ADDON_DATA) {
-                        dataByFolder.computeIfAbsent(c.folder().toLowerCase(Locale.ROOT), k -> new ArrayList<>()).add(p);
-                    }
+                    String token=catalog.token(rel);
+                    if(token!=null&&!token.startsWith("@data:")) dataByFolder.computeIfAbsent(token.toLowerCase(Locale.ROOT),k->new ArrayList<>()).add(p);
                 }
             }
         }
@@ -78,11 +79,13 @@ public final class AddonManager {
     }
 
     static Path findToc(Path folder, String name) throws IOException {
+        Path version=folder.resolve(name+"_Forever.toc");
+        if(Files.isRegularFile(version))return version;
         Path exact = folder.resolve(name + ".toc");
         if (Files.isRegularFile(exact)) return exact;
         try (Stream<Path> s = Files.list(folder)) {
             return s.filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".toc") && Files.isRegularFile(p))
-                    .sorted().findFirst().orElse(null);
+                    .filter(p->p.getFileName().toString().equalsIgnoreCase(name+".toc")||p.getFileName().toString().equalsIgnoreCase(name+"_Forever.toc")).sorted().findFirst().orElse(null);
         }
     }
 

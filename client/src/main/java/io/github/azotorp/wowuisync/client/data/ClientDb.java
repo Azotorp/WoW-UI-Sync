@@ -191,6 +191,40 @@ public final class ClientDb implements AutoCloseable {
         }
     }
 
+    /** Separate optional cache table: old clients and client.db schema remain readable. */
+    public record ScanCache(String path, long size, String modified, String identity, String sha256, long verifiedAt) {}
+    private void ensureScanCache() throws SQLException {
+        exec("CREATE TABLE IF NOT EXISTS scan_cache_v2 (root TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL, "
+                + "modified TEXT NOT NULL, identity TEXT NOT NULL, sha256 TEXT NOT NULL, verified_at INTEGER NOT NULL, PRIMARY KEY(root,path))");
+    }
+    public synchronized Map<String,ScanCache> scanCache(String root) throws SQLException {
+        ensureScanCache();
+        Map<String,ScanCache> out = new HashMap<>();
+        try (PreparedStatement p = conn.prepareStatement("SELECT path,size,modified,identity,sha256,verified_at FROM scan_cache_v2 WHERE root=?")) {
+            p.setString(1,root);
+            try (ResultSet rs = p.executeQuery()) {
+                while (rs.next()) {
+                    ScanCache e = new ScanCache(rs.getString(1),rs.getLong(2),rs.getString(3),rs.getString(4),rs.getString(5),rs.getLong(6));
+                    if (io.github.azotorp.wowuisync.common.hash.Hashing.isSha256Hex(e.sha256())) out.put(e.path(),e);
+                }
+            }
+        }
+        return out;
+    }
+    public synchronized void checkpointScanCache(String root, Collection<ScanCache> entries) throws SQLException {
+        if (entries.isEmpty()) return;
+        ensureScanCache();
+        conn.setAutoCommit(false);
+        try (PreparedStatement p = conn.prepareStatement("INSERT OR REPLACE INTO scan_cache_v2 VALUES (?,?,?,?,?,?,?)")) {
+            for (ScanCache e : entries) {
+                p.setString(1,root);p.setString(2,e.path());p.setLong(3,e.size());p.setString(4,e.modified());
+                p.setString(5,e.identity());p.setString(6,e.sha256());p.setLong(7,e.verifiedAt());p.addBatch();
+            }
+            p.executeBatch();conn.commit();
+        } catch (SQLException e) { conn.rollback();throw e; }
+        finally { conn.setAutoCommit(true); }
+    }
+
     // ------------------------------------------------------------------ bases
 
     public synchronized String base(String hostPort, String accountId, String profileId) throws SQLException {

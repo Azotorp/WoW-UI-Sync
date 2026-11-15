@@ -23,6 +23,7 @@ public final class ProgressPanel extends JPanel {
     private final JButton pause = new JButton("Pause");
     private final JButton cancel = new JButton("Cancel");
     private volatile Control control;
+    private volatile long started, lastCount;
 
     /** Pause/cancel flags read by the transfer. */
     public static final class Control extends io.github.azotorp.wowuisync.client.sync.TransferControl {}
@@ -73,6 +74,7 @@ public final class ProgressPanel extends JPanel {
 
     /** Starts showing a new operation. */
     public Control begin(String what, boolean pausable) {
+        started=System.nanoTime();lastCount=0;
         Control c = new Control();
         control = c;
         SwingUtilities.invokeLater(() -> {
@@ -103,6 +105,9 @@ public final class ProgressPanel extends JPanel {
     }
 
     public void count(String label, long done, long total) {
+        long tick=System.nanoTime();
+        if(done!=total && tick-lastCount<100_000_000L)return;
+        lastCount=tick;
         SwingUtilities.invokeLater(() -> {
             bar.setIndeterminate(total <= 0);
             if (total > 0) bar.setValue((int) Math.min(1000, done * 1000 / total));
@@ -126,7 +131,8 @@ public final class ProgressPanel extends JPanel {
     public void done(String text) {
         control = null;
         SwingUtilities.invokeLater(() -> {
-            title.setText(text);
+            title.setText(text + " · elapsed " + Sizes.duration((System.nanoTime()-started)/1_000_000_000L));
+            speed.setText(" ");
             bar.setIndeterminate(false);
             bar.setValue(1000);
             pause.setEnabled(false);

@@ -65,11 +65,11 @@ public final class ServerMain {
     private static void usage() {
         System.out.println(Version.APP_NAME + " server " + Version.APP_VERSION);
         System.out.println();
-        System.out.println("Usage: java -jar wow-ui-sync-server.jar <command> [--data <path>]");
+        System.out.println("Usage: java -jar wow-ui-sync.server.jar <command> [--data <path>]");
         System.out.println();
         System.out.println("Commands:");
         System.out.println("  install      first-time setup: data folder, port, TLS certificate, root account");
-        System.out.println("  run          start the server (normally via scripts/start.sh or start.bat)");
+        System.out.println("  run          start the server (normally via its generated systemd service)");
         System.out.println("  reset-root   replace root's public key or password");
         System.out.println("  stop         ask a running server to stop");
         System.out.println("  data-dir     print the data folder path");

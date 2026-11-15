@@ -96,14 +96,14 @@ class SyncIntegrationTest {
             ClientApp pc1 = client("pc1");
             Path f1 = dir.resolve("pc1-wow/_forever_");
             write(f1.resolve(".flavor.info"), "x".getBytes());
-            write(f1.resolve("Interface/AddOns/WeakAuras/WeakAuras.toc"), "## Title: WeakAuras\n".getBytes());
+            write(f1.resolve("Interface/AddOns/WeakAuras/WeakAuras.toc"), "## Title: WeakAuras\n## SavedVariables: WeakAurasSaved\n".getBytes());
             write(f1.resolve("Interface/AddOns/WeakAuras_Options/WeakAuras_Options.toc"), "## Dependencies: WeakAuras\n".getBytes());
             write(f1.resolve("Interface/AddOns/Details/Details.toc"), "## Title: Details\n".getBytes());
             byte[] big = new byte[6 << 20];
             new Random(1).nextBytes(big);
             write(f1.resolve("Interface/AddOns/Details/sounds/big.ogg"), big);
             for (int i = 0; i < 300; i++) write(f1.resolve("Interface/AddOns/WeakAuras/lib/f" + i + ".lua"), ("-- file " + i).repeat(50).getBytes());
-            write(f1.resolve("WTF/Account/ACC/SavedVariables/WeakAuras.lua"), "WeakAurasSaved = {}".getBytes());
+            write(f1.resolve("WTF/Account/ACC/SavedVariables/WeakAurasSaved.lua"), "WeakAurasSaved = {}".getBytes());
             write(f1.resolve("WTF/Account/ACC/SavedVariables/Details.lua"), "Details = {}".getBytes());
             write(f1.resolve("WTF/Account/ACC/macros-cache.txt"), "MACRO".getBytes());
             Flavor fl1 = new Flavor("_forever_", f1, "forever", true);
@@ -133,8 +133,8 @@ class SyncIntegrationTest {
             assertEquals(SyncStatus.Kind.DIFFERENT, ops2.status(c2, root, fl2, s2).kind());
             SyncOps.PullSource src = ops2.pullSource(c2, root, fl2);
             assertTrue(src.tocs().containsKey("weakauras"));
-            PullSelection all = new PullSelection(List.of("WeakAuras", "WeakAuras_Options", "Details"), List.of("WeakAuras", "WeakAuras_Options", "Details"), true);
-            Msg.PullPlan plan = ops2.pullPlan(c2, root, fl2, s2, all, PullMode.REPLACE);
+            PullSelection all = new PullSelection(List.of("WeakAuras", "WeakAuras_Options", "Details"), List.of("WeakAuras", "WeakAuras_Options", "Details"), true, List.of("Old"),List.of());
+            Msg.PullPlan plan = ops2.pullPlan(src,s2,all,"forever");
             assertTrue(plan.selectsEverything());
             assertEquals(1, plan.removedFiles().size());
             ops2.pullApply(c2, root, fl2, s2, plan, new TransferControl(), SINK, null);
@@ -145,14 +145,20 @@ class SyncIntegrationTest {
             assertEquals(SyncStatus.Kind.UP_TO_DATE, ops2.status(c2, root, fl2, s2b).kind());
 
             // --- PC2 edits and pushes a delta; PC1 sees "server newer"
-            write(f2.resolve("WTF/Account/ACC/SavedVariables/WeakAuras.lua"), "WeakAurasSaved = {changed=true}".getBytes());
+            write(f2.resolve("WTF/Account/ACC/SavedVariables/WeakAurasSaved.lua"), "WeakAurasSaved = {changed=true}".getBytes());
+            write(f2.resolve("Interface/AddOns/LocalUnselected/LocalUnselected.toc"),"## Title: LocalUnselected".getBytes());
             LocalScan s2c = ops2.scan(fl2, null, () -> false);
             SyncStatus st2 = ops2.status(c2, root, fl2, s2c);
             assertEquals(SyncStatus.Kind.LOCAL_CHANGES, st2.kind());
-            Msg.PushNeed need2 = ops2.pushBegin(c2, root, fl2, s2c, st2.server().currentFingerprint());
+            var serverBefore=ops2.pullSource(c2,root,fl2);
+            var scopedTarget=io.github.azotorp.wowuisync.common.addon.PullPlanner.target(s2c.manifest(),serverBefore.manifest(),
+                    new PullSelection(List.of(),List.of("WeakAuras"),false),SyncOps.localTocs(s2c,"forever"),
+                    io.github.azotorp.wowuisync.client.ui.PullSelectionDialog.parse(serverBefore.tocs()));
+            var scopedScan=new LocalScan(f2,scopedTarget,s2c.files(),List.of(),List.of());
+            Msg.PushNeed need2 = ops2.pushBegin(c2, root, fl2, scopedScan, st2.server().currentFingerprint());
             assertEquals(1, need2.editedFiles().size());
             assertEquals(1, need2.missingHashes().size());
-            ops2.pushUpload(c2, root, fl2, s2c, need2, new TransferControl(), SINK);
+            ops2.pushUpload(c2, root, fl2, scopedScan, need2, new TransferControl(), SINK);
             assertEquals(SyncStatus.Kind.SERVER_NEWER, ops1.status(c1, root, fl1, ops1.scan(fl1, null, () -> false)).kind());
 
             // --- PC1: selective pull of WeakAuras data only, keep mode
@@ -160,10 +166,25 @@ class SyncIntegrationTest {
             Msg.PullPlan p2 = ops1.pullPlan(c1, root, fl1, s1b, new PullSelection(List.of(), List.of("WeakAuras"), false), PullMode.KEEP);
             assertEquals(1, p2.editedFiles().size());
             assertEquals(0, p2.removedFiles().size());
-            assertFalse(p2.selectsEverything());
+            assertTrue(p2.selectsEverything()); // Result is byte-for-byte identical even for this data-only selection.
             ops1.pullApply(c1, root, fl1, s1b, p2, new TransferControl(), SINK, null);
-            assertEquals("WeakAurasSaved = {changed=true}", Files.readString(f1.resolve("WTF/Account/ACC/SavedVariables/WeakAuras.lua")));
+            assertEquals("WeakAurasSaved = {changed=true}", Files.readString(f1.resolve("WTF/Account/ACC/SavedVariables/WeakAurasSaved.lua")));
             assertEquals(SyncStatus.Kind.UP_TO_DATE, ops1.status(c1, root, fl1, ops1.scan(fl1, null, () -> false)).kind());
+            assertNull(ops2.pullSource(c2,root,fl2).manifest().get("Interface/AddOns/LocalUnselected/LocalUnselected.toc"));
+            // A truly fresh marker-only installation accepts a Pull and creates both directories.
+            ClientApp fresh=client("fresh");Path freshFolder=dir.resolve("fresh-wow/_forever_");
+            write(freshFolder.resolve(".flavor.info"),"marker".getBytes());
+            Flavor freshFlavor=new Flavor("_forever_",freshFolder,"forever",true);SyncOps freshOps=new SyncOps(fresh);
+            var freshScan=freshOps.scan(freshFlavor,null,()->false);var freshSource=ops1.pullSource(c1,root,fl1);
+            var freshSelection=new PullSelection(List.of("WeakAuras","WeakAuras_Options","Details"),List.of("WeakAuras","WeakAuras_Options","Details"),true);
+            var freshPlan=freshOps.pullPlan(freshSource,freshScan,freshSelection,"forever");
+            var canceled=new TransferControl();canceled.cancel();
+            assertThrows(io.github.azotorp.wowuisync.client.util.CancelledException.class,()->freshOps.pullApply(c1,root,freshFlavor,freshScan,freshPlan,canceled,SINK,null,true,true));
+            assertFalse(Files.exists(freshFolder.resolve("Interface")));
+            freshOps.pullApply(c1,root,freshFlavor,freshScan,freshPlan,new TransferControl(),SINK,null,true,true);
+            assertTrue(Files.isDirectory(freshFolder.resolve("Interface")));assertTrue(Files.isDirectory(freshFolder.resolve("WTF")));
+            assertEquals(freshSource.fingerprint(),freshOps.scan(freshFlavor,null,()->false).manifest().fingerprint());
+            assertThrows(Exception.class,()->freshOps.pushBegin(c1,root,freshFlavor,freshScan,freshSource.fingerprint()));
             assertNotNull(login);
             c1.close();
             c2.close();

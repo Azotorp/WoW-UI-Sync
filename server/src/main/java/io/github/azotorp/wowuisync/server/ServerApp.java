@@ -39,6 +39,11 @@ public final class ServerApp {
 
     /** Runs until stopped. Returns the process exit code. */
     public int run() throws Exception {
+        try(var lease=io.github.azotorp.wowuisync.server.security.StoreLease.acquire(layout.root())) {
+            return runExclusive();
+        }
+    }
+    private int runExclusive() throws Exception {
         Files.createDirectories(layout.logs());
         ServerConfig cfg = ConfigIO.loadSettings(layout);
         Logs.init(layout.logs(), cfg.logLevel);

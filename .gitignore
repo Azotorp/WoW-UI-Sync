@@ -11,3 +11,5 @@ dist/
 .DS_Store
 Thumbs.db
 wow-ui-sync-data/
+__pycache__/
+*.pyc

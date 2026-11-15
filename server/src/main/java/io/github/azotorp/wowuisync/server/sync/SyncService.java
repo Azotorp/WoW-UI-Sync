@@ -134,6 +134,9 @@ public class SyncService {
         Manifest cur = sm == null ? Manifest.empty() : sm.manifest();
         String curFp = sm == null ? null : sm.fingerprint();
 
+        if(!java.util.Objects.equals(m.expectedCurrentFingerprint(),curFp)) {
+            throw new ApiException(ErrorCodes.CONFLICT,"Server copy changed since planning; reload the selection and preview before pushing.");
+        }
         Manifest next;
         if (m.delta()) {
             if (m.baseFingerprint() == null || !m.baseFingerprint().equals(curFp)) {
@@ -150,6 +153,7 @@ public class SyncService {
             next = new Manifest(full);
         }
         validateEntries(next.entries());
+        if(next.size()==0)throw new ApiException(ErrorCodes.INVALID,"Empty Push is blocked; it cannot erase the server copy.");
 
         ManifestDiff plan = ManifestDiff.between(cur, next);
         Set<String> unique = Storage.uniqueHashes(next);
@@ -342,13 +346,19 @@ public class SyncService {
         Manifest local = new Manifest(localEntries);
         PullSelection sel = m.selection() == null ? new PullSelection(List.of(), List.of(), false) : m.selection();
         PullMode mode = m.mode() == null ? PullMode.REPLACE : m.mode();
-        ManifestDiff plan = PullPlanner.plan(source, local, sel, mode);
+        Map<String,io.github.azotorp.wowuisync.common.addon.TocInfo> tocs=new HashMap<>();
+        for(var e:io.github.azotorp.wowuisync.common.addon.AddonGrouper.tocEntries(source,m.profileId()).entrySet()) {
+            if(e.getValue().size()<(1<<20))tocs.put(e.getKey(),io.github.azotorp.wowuisync.common.addon.TocParser.parse(
+                    SyncPaths.addonFolder(e.getValue().path()),ObjectFiles.read(storage.objectPath(src.id(),m.profileId(),e.getValue().sha256()))));
+        }
+        Manifest target=PullPlanner.target(source,local,sel,tocs,Map.of());
+        ManifestDiff plan = ManifestDiff.between(local,target);
         Set<String> seen = new HashSet<>();
         long total = 0;
         for (ManifestEntry e : plan.added()) if (seen.add(e.sha256())) total += e.size();
         for (ManifestEntry e : plan.edited()) if (seen.add(e.sha256())) total += e.size();
         return new Msg.PullPlan(plan.added(), plan.edited(), paths(plan.removed()), total, sm.fingerprint(),
-                PullPlanner.selectsEverything(source, sel, mode));
+                target.fingerprint().equals(source.fingerprint()));
     }
 
     /** Sends the requested objects as packs (compressed and raw packs, never mixed). */

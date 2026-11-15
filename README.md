@@ -1,275 +1,66 @@
-# WoW UI Sync
+# WoW UI Sync 1.2.0-alpha
 
-Self-hosted backup, sync, and setup switching for your whole World of Warcraft UI: addons, account-wide settings, and per-character SavedVariables.
+Self-hosted synchronization for the WoW Forever UI (`_forever_`): add-on files, declared SavedVariables, independently selected orphan data, and explicit general WTF settings. **This is an isolated alpha test build. Keep your working 1.0.0 installation and backups.**
 
-- **Clone** your UI to any PC: push from one machine, pull on another. Only what differs is transferred.
-- **Back up** safely: every change the app makes to your WoW folder is preceded by a full local backup you can restore.
-- **Switch setups**: pull another account's setup (a stream setup, a partner's setup) onto a PC, selectively, without losing your own.
-- **Self-hosted**: one server jar on your own machine (a VPS or a home PC). One server can host many accounts.
+Java 21+ runs both JARs. Building requires JDK 21+, Maven 3.9+, and Python 3. Linux service management additionally uses systemd, `runuser`, and an existing OS service account; `edit-service.sh` uses nano. Windows and macOS can run the JARs directly. Only Forever synchronization is enabled; other recognized versions remain listed as unsupported.
 
-Open source under the GNU GPL v3. **Not affiliated with or endorsed by Blizzard Entertainment.** World of Warcraft and WoW are trademarks of Blizzard Entertainment, Inc.
+## Download layout and startup
 
-This version syncs the **Forever** game flavor (`_forever_`). Other flavors are detected and shown as "coming later".
+- `client/wow-ui-sync.client.jar`: `java -jar client/wow-ui-sync.client.jar`
+- `server/wow-ui-sync.server.jar`: headless server; `java -jar server/wow-ui-sync.server.jar version`
+- `server/setup.sh`: interactive Linux service setup, with `--dry-run` for a configuration preview. After successful installation with a remote bind address, it offers to allow the chosen TCP port in an already-active UFW firewall. Type `YES` to allow it; inactive UFW is never enabled, and SSH/other rules stay unchanged.
+- `server/update.sh SERVICE CANDIDATE_JAR`: stopped-service JAR replacement with rollback on a failed restart.
+- `server/edit-service.sh SERVICE`: edit a temporary unit with nano, validate, install, and reload; prints the restart command.
+- `server/uninstall.sh SERVICE`: explicitly confirm removal of only that unit. Data, keys, backups and JAR are preserved.
+- Source, repeatable tests, build/package scripts, `UPGRADE.md`, `TEST-REPORT.md`, and design documents are included.
 
----
+**Start with [UPGRADE.md](UPGRADE.md).** Its separate-test-service procedure keeps production on its current port and data directory. There is no production deployment in this delivery. 1.2 uses protocol 2; a 1.2 client requires a 1.2 server and vice versa. Store format/schema stay compatible with 1.0. Existing-service upgrades can replace the configured server JAR and restart that same service; no installer or data migration is required. Update the client JAR separately.
 
-## Contents
-
-1. [Requirements](#requirements)
-2. [Server: install](#server-install)
-3. [Server: running and stopping](#server-running-and-stopping)
-4. [Server: upgrading](#server-upgrading)
-5. [Server: resetting root](#server-resetting-root)
-6. [Server: password reset emails (SMTP)](#server-password-reset-emails-smtp)
-7. [Keys and security advice](#keys-and-security-advice)
-8. [Client walkthrough](#client-walkthrough)
-9. [Disk space](#disk-space)
-10. [Building from source](#building-from-source)
-11. [License and disclaimer](#license-and-disclaimer)
-
----
-
-## Requirements
-
-- **Java 21** or newer, on every machine that runs the client or the server. Nothing else: no FTP, no mail server, no database server.
-  - Windows / macOS: install a Java 21 runtime, for example Eclipse Temurin from <https://adoptium.net>.
-  - Ubuntu / Debian: `sudo apt install openjdk-21-jre-headless` (server) or `openjdk-21-jre` (client).
-- The client and server run on Windows, Linux, and macOS (x64 and arm64), in any combination, including both on one machine.
-
-Downloads (GitHub Releases):
-
-- `wow-ui-sync-server-<version>.zip`: `wow-ui-sync-server.jar`, `scripts/`, this README, LICENSE.
-- `wow-ui-sync-client-<version>.zip`: `wow-ui-sync-client.jar`, this README, LICENSE.
-
-## Server install
-
-The server runs headless and only writes a log. Setup is a one-time interactive command, usually over SSH.
-
-1. Create an unprivileged user to run the server (recommended on Linux):
-
-   ```sh
-   sudo useradd --system --create-home --shell /usr/sbin/nologin wowuisync
-   ```
-
-2. Unzip the server zip somewhere that user can read, for example `/opt/wow-ui-sync`, so you have
-   `/opt/wow-ui-sync/wow-ui-sync-server.jar` and `/opt/wow-ui-sync/scripts/`.
-
-3. Run the installer as that user:
-
-   ```sh
-   sudo -u wowuisync /opt/wow-ui-sync/scripts/install.sh
-   ```
-
-   On Windows, double-click `scripts\install.bat`.
-
-   The installer asks for:
-
-   - the **data folder** (a full path; default `~/wow-ui-sync-data`). Everything the server stores goes there.
-   - the **port** (default **2026**) and the **public host name or IP address** clients will use (it offers a guess).
-   - root's **OpenSSH public key line** (recommended), or press Enter to set a **password** instead (typed twice, hidden, at least 8 characters).
-   - root's **email** (optional, used only for password reset emails).
-
-   It then writes `server.json` (next to the jar and in the data folder), creates the database and the TLS certificate,
-   locks down permissions, and creates the **root** account. At the end it prints the host, port, username `root`, the login
-   method, and the **TLS certificate SHA-256 fingerprint**. Keep that fingerprint: the client shows it on first connect so you
-   can confirm you are talking to your server.
-
-4. **Open the port.** On Ubuntu with ufw:
-
-   ```sh
-   sudo ufw allow 2026/tcp
-   ```
-
-   On Windows, allow `java.exe` (or TCP port 2026) in Windows Defender Firewall when asked.
-
-### Home servers, LAN, and same-machine use
-
-- **Same machine**: run the server and the client on one PC and connect to `localhost`.
-- **LAN**: use the server PC's local address (for example `192.168.1.20`) as the host.
-- **From the internet on a home connection**: forward TCP port 2026 on your router to the server PC, and use your public IP
-  address or a dynamic-DNS name as the host. The public host given to `install` is what invite codes contain; to change it later,
-  edit `publicHost` in `<data folder>/server.json` and restart the server.
-
-## Server: running and stopping
-
-- **Linux / macOS**: `scripts/start.sh` starts the server inside a `screen` session named `wowuisync`
-  (attach with `screen -r wowuisync`, detach with Ctrl+A then D). If `screen` is not installed, it runs in the current terminal.
-  If the server exits unexpectedly, the script prints the exit code, counts down 10 seconds, and restarts it.
-- **Windows**: `scripts\start.bat` opens its own console window with the same restart loop.
-- **Stop**: `scripts/stop.sh` or `scripts\stop.bat`. The server notices within about 2 seconds, ends transfers cleanly, and exits.
-  The start script's loop then ends too.
-- **systemd** (optional, Linux): `scripts/wow-ui-sync.service` is a ready unit that runs as the `wowuisync` user. Copy it to
-  `/etc/systemd/system/`, adjust paths if needed, then `sudo systemctl daemon-reload && sudo systemctl enable --now wow-ui-sync`.
-  Use `systemctl stop wow-ui-sync` to stop it.
-
-Direct commands (the scripts are thin wrappers around these):
+For manual server setup on a platform without systemd:
 
 ```sh
-java -jar wow-ui-sync-server.jar run          # start in the foreground
-java -jar wow-ui-sync-server.jar stop         # ask a running server to stop
-java -jar wow-ui-sync-server.jar data-dir     # print the data folder
-java -jar wow-ui-sync-server.jar version
-# any command also accepts --data <path> to point at a data folder explicitly
+java -jar server/wow-ui-sync.server.jar install --data /absolute/path/to/independent-test-data
+java -jar server/wow-ui-sync.server.jar run --data /absolute/path/to/independent-test-data
 ```
 
-The log is `<data folder>/logs/server.log` (rotating, 10 MB × 5).
+Choose a distinct test port during installation. Root can use a password or an OpenSSH public key. The private key stays on the client. TLS fingerprints, account identity, credentials, and current manifests live in the data directory. Never recreate that directory or rerun installation to update an existing store.
 
-## Server: upgrading
+## Selecting and syncing
 
-Stop the server, replace `wow-ui-sync-server.jar` (and `scripts/`), start it again. The data folder is untouched.
-If the new version needs a newer database layout, it first copies the database to
-`<data folder>/db-backups/wowuisync-v<old>-<timestamp>.db` and then migrates it. Clients that are too old for the server
-(or the other way round) are told which version to update to.
+1. In client Settings, select the WoW **parent installation folder**. A version folder with a valid executable or `.flavor.info` is accepted even if Interface/WTF do not exist yet.
+2. Create a connection to the separate test server. Confirm its TLS fingerprint and sign in. Do not use a production connection with this alpha client.
+3. **Push** and **Pull** both show one row for each top-level `Interface/AddOns/<folder>`. Each row has independent **Addon** and **Include Data** checkboxes, title, exact folder, explanatory family and dependencies, numeric Size and Data Size. Hover for full metadata and locations.
+4. **Family is descriptive.** It never combines folders or selects dependencies for you. Missing or deselected required dependencies produce a warning. Optional dependencies remain labeled optional.
+5. Unrecognized/shared SavedVariables have a separate, data-only table. Rows group all locations of the same basename **within the same account/character scope**; hover shows every actual path. Unknown `Blizzard_` rows sort first and say **Blizzard (assumed)**. Shared ownership is explicitly marked; no arbitrary owner is picked.
+6. General WTF settings are a separate checkbox, initially unchecked. They exclude every recognized SavedVariables path. Defaults still exclude `Config.wtf`, `.bak`, `.old` and the other 1.0 default patterns; remove an exclusion in Settings deliberately if you want those files synced. Ownership of `.lua.bak` is supported when not excluded.
+7. **Unchecked means skip.** Unselected folders/data survive. Pull's local-only table defaults to Keep; explicit Remove affects only absent-from-server folders, with exact file deletion preview. A data-only pull preserves add-on files. Push preserves unrelated server files/data, and empty Push is blocked.
+8. Pull previews actual creates, updates and deletions before applying. Back up Interface and/or WTF independently; both initially enabled. Estimated category sizes and backup location are shown. Disabled backups require a warning confirmation.
 
-## Server: resetting root
+Selected file folders synchronize their source file set, including removing obsolete files **inside that selected folder**. Data settings overwrite only selected source paths; missing source data never authorizes deleting destination data. General WTF selection copies the source's non-SavedVariables paths; it does not delete unrelated destination settings.
 
-If you lose root's key or password, run on the server (it works while the server is running):
+## Backups and recovery
+
+New backups are verified, immutable snapshots under `<version>/.wus-backups/<timestamped-id>/`. A completed `backup.json` records selected categories and file hashes. Incomplete `.partial-*` folders are not listed as successful snapshots. Nothing renames/moves a live folder to create a backup. Failure, cancellation or insufficient space prevents Pull from applying changes.
+
+Use **Backups → Restore** to verify a snapshot, back up the current selected categories, and replace only the categories in that snapshot. A selected category that was absent is restored as absent; an unselected category remains untouched. Legacy `Interface_<account>_<timestamp>` / `WTF_<account>_<timestamp>` backups remain readable; only present legacy categories are restored.
+
+Downloads stage before live writes. Changed local files or server manifests after preview abort safely. Writes use verified temp files and rename; a pending-operation journal warns on next startup after an interrupted apply. **The whole Pull is not a single filesystem transaction**: if interrupted during apply, restore its backup categories and retry. With backups disabled, recovery may require your own copy. WoW and external add-on managers should be closed while applying or restoring.
+
+## Scan cache and progress
+
+The client checkpoints verified file hashes in `client.db` during scanning, every 64 completed hashes or approximately one second, and flushes completed results on cancellation. A killed process can lose the final uncommitted batch, rather than the entire scan. Keys use canonical installation paths, logical relative paths, size, precise mtime and available file identity/change timestamps. Stale/corrupt entries rehash; whole-database errors fail closed. Entries expire after 24 hours and backward clock anomalies invalidate reuse. Defaults use two bounded hash workers (`-Dwowuisync.hashThreads=1..8` overrides for profiling).
+
+An empty server's automatic status check defers content hashing; a real first Push still scans and verifies its content. Progress shows phases, counts, transfer bytes/rate, elapsed/ETA, scan cache hits/hashed bytes and active work descriptions. Network retry does not claim to resume a committed transaction. Commit acknowledgement and the returned fingerprint are checked before reporting Push success.
+
+## Build and validation
 
 ```sh
-sudo -u wowuisync /opt/wow-ui-sync/scripts/reset-root.sh
+./build.sh
+./package.sh --no-build
 ```
 
-Choose a new public key or a new password. Root's active sessions end.
+Build outputs are `dist/wow-ui-sync-client.jar` and `dist/wow-ui-sync-server.jar`. Packaging copies them to the dotted deployable names inside `dist/WoW-UI-Sync-1.2.0-alpha.zip`, validates manifests, includes source/tests, and writes a SHA-256 file. `./package.sh` builds/tests first. ZIP entry timestamps and ordering are fixed; Maven JAR byte reproducibility is limited by the original build configuration.
 
-## Server: password reset emails (SMTP)
+See [TEST-REPORT.md](TEST-REPORT.md) for measured Linux results and explicit platform/systemd verification limits. [DESIGN-1.2.md](DESIGN-1.2.md) supersedes conflicting 1.0 sync/backup/grouping design details; `DESIGN.md` remains the historical foundation. The separate browse/discovery/exclusions refactor described in `CLIENT_REFACTOR_PLAN.md` is not part of this alpha's implementation.
 
-Accounts that log in with a password and have an email can use **Forgot password** on the client's Connect screen: the server
-emails a 6-digit code (valid 15 minutes, 5 attempts). This needs SMTP settings in `<data folder>/server.json`; restart the
-server after editing.
-
-Gmail (with an app password):
-
-```json
-"smtp" : {
-  "enabled" : true,
-  "host" : "smtp.gmail.com",
-  "port" : 587,
-  "username" : "you@gmail.com",
-  "password" : "your-16-character-app-password",
-  "from" : "WoW UI Sync <you@gmail.com>",
-  "security" : "starttls"
-}
-```
-
-A provider using implicit TLS on port 465:
-
-```json
-"smtp" : {
-  "enabled" : true,
-  "host" : "mail.example.com",
-  "port" : 465,
-  "username" : "sync@example.com",
-  "password" : "secret",
-  "from" : "sync@example.com",
-  "security" : "ssl"
-}
-```
-
-Key-only accounts are recovered by their manager (root or their superuser) setting a new key; root is recovered with `reset-root`.
-
-## Keys and security advice
-
-- All traffic uses **TLS 1.3** on one port. The certificate is self-signed; the client pins its fingerprint per host and port on
-  first connect and blocks with a clear warning if it ever changes. Invite codes carry the fingerprint and pin it automatically.
-- Each account uses **either a public key or a password**, never both. Supported keys: `ssh-ed25519`, `ssh-rsa` (2048 bits or more),
-  `ecdsa-sha2-nistp256`, in OpenSSH format. Login is challenge-response: the private key never leaves your PC, and the client
-  reads passphrase-protected key files (it asks for the passphrase).
-- **Use a separate key pair for WoW UI Sync**, for example:
-
-  ```sh
-  ssh-keygen -t ed25519 -f ~/.ssh/wowuisync -C "wow-ui-sync"
-  ```
-
-  Paste the contents of `~/.ssh/wowuisync.pub` where a public key is asked for, and choose `~/.ssh/wowuisync` in the client.
-  These keys are only used by WoW UI Sync; they never grant SSH or shell access to the server.
-- **PuTTYgen users**: load or generate your key, then use **Conversions → Export OpenSSH key** to save the private key file the client
-  can read. For the public key, copy the text from "Public key for pasting into OpenSSH authorized_keys file".
-- Run the server as an **unprivileged OS user** (for example `wowuisync`) and open **only the sync port**.
-- Logins lock an account for 15 minutes after 5 failures; more than 20 failures from one IP address in 10 minutes block that
-  address for 15 minutes. Both limits are in `server.json` (`lockout`).
-
-## Client walkthrough
-
-Unzip the client anywhere and run `wow-ui-sync-client.jar` (double-click, or `java -jar wow-ui-sync-client.jar`). It keeps its
-settings, database, logs, and resumable downloads in `wow-ui-sync-data/` next to the jar.
-
-1. **Choose your WoW folder** in Settings (for example `C:\Games\World of Warcraft`; on macOS `/Applications/World of Warcraft` is
-   suggested). The client detects the flavor folders inside it; Forever is enabled.
-2. **Connect.** The Connect screen lists saved connections (like WinSCP's site manager): New, Edit, Delete, Connect. A connection
-   has a name, host, port (2026), username, and either a password (saved on this PC in plain text only if you tick the box,
-   otherwise asked each time) or a private key file. On the first connection you are shown the server's certificate fingerprint:
-   compare it with the one `install` printed. Choosing a connection or an account never changes your files.
-3. **Join with invite code**: if someone gave you a `wus1-…` code, use this button on the Connect screen. Choose a username, a key
-   file (only its public key is sent) or a password, and optionally an email. A connection is saved for you.
-4. **Status.** The main window shows, for the selected account and profile:
-   - **Up to date**
-   - **Local changes - push recommended**
-   - **Server is newer (from Laptop, Nov 7, 9:42 PM) - pull recommended**
-   - **Conflict**: both sides changed; **Show details** lists what differs.
-   - **Different from the server**: this PC has not synced with that account yet.
-5. **Push** makes the server copy an exact mirror of this PC: new and edited files are uploaded, files you deleted are removed.
-   A review dialog lists New, Edited, and Removed files first. Pushing to an account other than your own requires typing its
-   username. The first push uploads everything; later pushes only send changes. Transfers can be paused, resumed, and survive
-   dropped connections; nothing already uploaded is sent again.
-6. **Pull…** opens the selection window: every addon of the source account with **Addon** and **Include data** checkboxes, a
-   **General settings** row (macros, key bindings, chat and layout, Blizzard settings), and **All addons / All data / None**.
-   - **Replace** (default): your AddOns folder ends up with exactly the selected addons.
-   - **Keep my other addons**: only the selection is copied; nothing else is removed.
-   - Addons without "Include data" keep your own saved settings.
-
-   WoW must be closed. After the review dialog the client makes a **full local backup**, downloads only differing files, and applies
-   them. **If you use CurseForge, WowUp, or a similar addon manager, run a rescan or refresh afterwards** so it picks up the synced addons.
-7. **Backups** lists the local backups of this flavor, newest first ("Girlfriend · Nov 7, 2026, 9:30:53 PM · Before pull from Azotorp").
-   **Manual backup**, **Restore** (backs up the current state first, so a restore can itself be undone), and **Delete**.
-   Backups are folders inside the flavor folder, `Interface_<account>_<date>` and `WTF_<account>_<date>`; WoW ignores them.
-8. **Addons** is a local manager that works without a server: grouped addons with their sizes; **Delete addon** removes its folders,
-   **Delete data** removes its SavedVariables across all characters. A backup is made first. WoW must be closed.
-9. **Accounts** (root and superusers): create accounts (password or public key), set new credentials, edit emails, quotas and caps,
-   delete accounts (type the username to confirm), and create, copy, and revoke invite codes. **My account** lets every user change
-   their own email and password or key.
-
-### Roles
-
-| | root | superuser | user |
-|---|---|---|---|
-| Data access | every account | itself and the users it owns | itself |
-| Can create | superusers, users, invites | users and user invites | nothing |
-| Manages | every account | the users it owns | its own password/key and email |
-
-Superusers are group owners, not server admins: they never see root, other superusers, or users they do not own. Root can cap
-how many users a superuser may have and give the group a shared storage limit. Deleting a superuser moves its users to root.
-
-### What is synced
-
-`Interface/AddOns/<addon folders>` and `WTF/` of the flavor folder. Loose files directly in `Interface/AddOns` (such as `.zip`
-backups) are ignored. Default exclusions (editable in Settings): `WTF/Config.wtf`, `WTF/gamecontrollerdb.txt`,
-`WTF/GamePadConfig_*.json`, `*.bak` and `*.old` under WTF, `.git` folders in addons, `Thumbs.db`, `desktop.ini`, `.DS_Store`.
-
-## Disk space
-
-- **Server**: each account keeps one current copy per profile. Text and compressible files are stored zstd-compressed;
-  already-compressed audio and images are stored as they are. A typical large UI (about 3 GB with many sound packs) needs a bit
-  less than its own size. Objects no longer referenced are removed after each push.
-- **Client**: every pull, restore, and addon delete first makes a **full copy** of `Interface` and `WTF` inside the flavor folder.
-  Backups are kept until you delete them in Backups, so delete old ones from time to time. The client checks free space before a
-  backup or pull and refuses with a clear message if it will not fit.
-- Interrupted downloads are kept in `wow-ui-sync-data/partial/` and resumed on the next pull; partial uploads on the server are
-  deleted after 7 days.
-
-## Building from source
-
-```sh
-mvn -B clean package
-```
-
-builds `common`, `server`, and `client` and writes `dist/wow-ui-sync-server.jar` and `dist/wow-ui-sync-client.jar`.
-`DESIGN.md` is the full specification; `DEVLOG.md` is the design history.
-
-## License and disclaimer
-
-WoW UI Sync is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as
-published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is
-distributed WITHOUT ANY WARRANTY. See `LICENSE`.
-
-WoW UI Sync is not affiliated with or endorsed by Blizzard Entertainment. World of Warcraft and WoW are trademarks of Blizzard
-Entertainment, Inc. This project contains no Blizzard logos, artwork, or fonts.
+GPL v3; see LICENSE. Not affiliated with or endorsed by Blizzard Entertainment.
