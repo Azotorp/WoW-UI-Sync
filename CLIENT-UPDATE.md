@@ -9,7 +9,7 @@ No server JAR replacement, service restart, installer or data migration is requi
 
 Changes: scan statistics and current path are on separate rows like upload progress; hashing restores the bounded 1.0 concurrency (up to eight workers), reuses per-worker buffers and avoids unsupported Unix timestamp calls on Windows. Existing cache metadata and durable checkpoints remain compatible.
 
-31 Java tests pass. Linux worker/scan measurements are included in the full package report; actual Windows cold-scan speed still needs your retest. An unchanged follow-up scan is verified to reuse cache with zero content reads.
+Linux worker/scan measurements are included in the full package report; actual Windows cold-scan speed still needs your retest. An unchanged follow-up scan is verified to reuse cache with zero content reads.
 
 Backup follow-up: Windows copies each selected Interface/WTF folder with Robocopy (/E, bounded /MT, no move/mirror/delete options). The client then verifies destination content in parallel, reusing freshly validated scan-cache hashes instead of rereading unchanged sources. Uncached files still get source and destination hash checks. Linux/macOS use bounded parallel Java copies. A snapshot is published only after verification and source/destination inventory checks succeed.
 

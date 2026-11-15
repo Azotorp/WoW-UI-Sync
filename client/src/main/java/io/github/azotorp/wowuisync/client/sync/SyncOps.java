@@ -223,7 +223,7 @@ public final class SyncOps {
     }
     public boolean pullApply(ServerConnection c, Msg.AccountInfo source, Flavor f, LocalScan scan, Msg.PullPlan plan,
                              TransferControl control, TransferEngine.Sink sink, Backups.Progress backupProgress, boolean backupInterface, boolean backupWtf) throws Exception {
-        Path flavor = f.path().toAbsolutePath().normalize();
+        Path flavor = f.path().toRealPath();
         Msg.ManifestResp current=c.call(new Msg.ManifestGet(source.id(),f.profileId()),Msg.ManifestResp.class);
         if(!java.util.Objects.equals(current.fingerprint(),plan.sourceFingerprint()))throw new UserException("Server copy changed after preview. Start Pull again; live files are unchanged.");
         List<ManifestEntry> writes = new ArrayList<>(plan.newFiles());
