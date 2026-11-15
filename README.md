@@ -8,7 +8,7 @@ Java 21+ runs both JARs. Building requires JDK 21+, Maven 3.9+, and Python 3. Li
 
 - `client/wow-ui-sync.client.jar`: `java -jar client/wow-ui-sync.client.jar`
 - `server/wow-ui-sync.server.jar`: headless server; `java -jar server/wow-ui-sync.server.jar version`
-- `server/setup.sh`: interactive Linux service setup, with `--dry-run` for a configuration preview. After successful installation with a remote bind address, it offers to allow the chosen TCP port in an already-active UFW firewall. Type `YES` to allow it; inactive UFW is never enabled, and SSH/other rules stay unchanged.
+- `server/setup.sh`: interactive Linux service setup, with `--dry-run` for a configuration preview. Defaults: resolved Java executable, service `wow-ui-sync`, detected primary interface IP (never localhost fallback), port `2027`, JAR-relative `data`, and detected invoking OS user/primary group. After successful installation with a remote bind address, it offers to allow the chosen TCP port in an already-active UFW firewall. Type `YES` to allow it; inactive UFW is never enabled, and SSH/other rules stay unchanged.
 - `server/update.sh SERVICE CANDIDATE_JAR`: stopped-service JAR replacement with rollback on a failed restart.
 - `server/edit-service.sh SERVICE`: edit a temporary unit with nano, validate, install, and reload; prints the restart command.
 - `server/uninstall.sh SERVICE`: explicitly confirm removal of only that unit. Data, keys, backups and JAR are preserved.

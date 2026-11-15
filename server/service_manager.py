@@ -194,14 +194,87 @@ def offer_firewall(bind, port, name):
         print(f'Firewall configuration failed. The service remains installed and running; check UFW separately. Manual command: {manual}')
     return False
 
+def assert_dedicated_jar(jar, selected, directories=None):
+    """Unrelated unit syntax must not abort setup; ambiguous sync units still fail closed."""
+    if directories is None:
+        directories = [Path('/usr/lib/systemd/system'), Path('/lib/systemd/system'), UNITS]
+    seen = set()
+    for directory in directories:
+        if not directory.is_dir():
+            continue
+        for other in directory.glob('*.service'):
+            if other.name == selected or other.resolve() in seen:
+                continue
+            seen.add(other.resolve())
+            try:
+                contents = other.read_text(errors='replace')
+            except OSError as error:
+                if 'wow-ui-sync' in other.name.lower() or 'wowuisync' in other.name.lower():
+                    raise ValueError(f'Cannot read sync service {other.name}; run setup with sudo and inspect that unit') from error
+                continue
+            # Systemd supports continuation lines; they are not separate shell commands.
+            contents = re.sub(r'\\\r?\n[ \t]*', ' ', contents)
+            for line in re.findall(r'^[ \t]*ExecStart[ \t]*=(.*)$', contents, re.M):
+                try:
+                    args = shlex.split(line)
+                except ValueError as error:
+                    identity = (other.name + ' ' + line).lower()
+                    if 'wow-ui-sync' in identity or 'wowuisync' in identity:
+                        raise ValueError(f'Cannot safely inspect sync service {other.name}: unsupported or unmatched ExecStart quoting. Review that unit before installing.') from error
+                    # Systemd and shell quoting differ. An unrelated service must not break our setup.
+                    continue
+                try:
+                    other_jar = Path(args[args.index('-jar') + 1]).resolve() if '-jar' in args else None
+                except (IndexError, OSError):
+                    continue
+                if other_jar == jar.resolve():
+                    raise ValueError(f'JAR is shared with {other.name}; use a dedicated test installation directory')
+
+def usable_bind_ip(value):
+    try:
+        address = ipaddress.ip_address(value)
+        return not (address.is_loopback or address.is_unspecified or address.is_multicast or address.is_link_local)
+    except ValueError:
+        return False
+
+def detect_primary_ip():
+    """Find the assigned source IP of the default route, without a public-IP web lookup."""
+    ip = shutil.which('ip')
+    if ip:
+        for version, destination in [('-4', '1.1.1.1'), ('-6', '2606:4700:4700::1111')]:
+            try:
+                result = subprocess.run([ip, '-j', version, 'route', 'get', destination], capture_output=True, text=True, check=True, timeout=3)
+                for route in json.loads(result.stdout):
+                    candidate = route.get('prefsrc') or route.get('src')
+                    if candidate and usable_bind_ip(candidate):
+                        return candidate
+            except (OSError, ValueError, subprocess.SubprocessError):
+                pass
+    # UDP connect selects the outbound interface locally; no packet is transmitted.
+    for family, destination in [(socket.AF_INET, ('1.1.1.1', 80)),
+                                (socket.AF_INET6, ('2606:4700:4700::1111', 80))]:
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as probe:
+                probe.connect(destination)
+                candidate = probe.getsockname()[0]
+                if usable_bind_ip(candidate):
+                    return candidate
+        except OSError:
+            pass
+    return None
+
+def default_service_user():
+    return os.environ.get('SUDO_USER') or pwd.getpwuid(os.getuid()).pw_name
+
+
 def setup(dry_run=False):
     java = shutil.which('java')
     if not java: raise ValueError('Java 21+ is required')
-    java = path_value(ask('Java executable', java))
+    java = path_value(ask('Java executable', Path(java).resolve()))
     version = subprocess.check_output([str(java), '-version'], stderr=subprocess.STDOUT, text=True)
     match = re.search(r'version "(\d+)', version)
     if not match or int(match[1]) < 21: raise ValueError('Java 21+ is required')
-    name = service_name(ask('Service name', 'wow-ui-sync-1.2'))
+    name = service_name(ask('Service name', 'wow-ui-sync'))
     unit = UNITS / name
     # Existing service must be approved before any installation or config mutation.
     exists = subprocess.run(['systemctl', 'cat', name], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
@@ -211,28 +284,26 @@ def setup(dry_run=False):
         if not confirm('Reconfigure this existing service?'):
             print('Declined; existing service was left untouched.')
             return
-    bind = ask('Bind address', '127.0.0.1')
+    detected_ip = detect_primary_ip()
+    if detected_ip:
+        print(f'Detected primary interface IP: {detected_ip}')
+    else:
+        print('Could not detect the primary interface IP. Enter an IP assigned to this server; no localhost default will be used.')
+    bind = ask('Bind address', detected_ip or '')
+    if not bind:
+        raise ValueError('A bind address is required because primary-IP detection failed')
     port = int(ask('Port', 2027))
     jar = path_value(ask('Installation JAR path', HERE / 'wow-ui-sync.server.jar'))
     data = path_value(ask('Data directory', jar.parent / 'data'))
     if not jar.is_file(): raise ValueError('JAR does not exist')
     if overlaps(data, jar): raise ValueError('JAR must stay outside the data directory')
-    default_user = os.environ.get('SUDO_USER') or pwd.getpwuid(os.getuid()).pw_name
+    default_user = default_service_user()
     user = ask('Existing OS service user', default_user)
     owner = pwd.getpwnam(user)
     group = ask('OS service group', grp.getgrgid(owner.pw_gid).gr_name)
     group_id = grp.getgrnam(group).gr_gid
     assert_separate(data, port, other_stores(name))
-    for directory in [Path('/usr/lib/systemd/system'), UNITS]:
-        if not directory.is_dir(): continue
-        for other in directory.glob('*.service'):
-            if other.name == name: continue
-            for line in re.findall(r'^ExecStart=(.*)$', other.read_text(errors='replace'), re.M):
-                try:
-                    args = shlex.split(line)
-                    if '-jar' in args and Path(args[args.index('-jar')+1]).resolve() == jar:
-                        raise ValueError(f'JAR is shared with {other.name}; use a dedicated test installation directory')
-                except (IndexError, OSError): pass
+    assert_dedicated_jar(jar, name)
     running = existing and active(name)
     if not running: check_port(bind, port)
     text = unit_text(name, java, jar, data, user, group)

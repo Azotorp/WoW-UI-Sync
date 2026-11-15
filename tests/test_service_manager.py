@@ -112,4 +112,72 @@ class FirewallTests(unittest.TestCase):
         with patch.object(m.shutil,'which',return_value='/usr/sbin/ufw'),patch.object(m.subprocess,'run',return_value=self.result('Status: active\n')),patch.object(m,'run'),patch.object(m,'confirm',return_value=True):
             self.assertFalse(m.offer_firewall('0.0.0.0',2027,'wow-ui-sync'))
 
+
+
+class UnitInspectionTests(unittest.TestCase):
+    def test_unrelated_unmatched_quote_does_not_abort(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'unrelated.service').write_text('[Service]\nExecStart=/bin/sh -c "unfinished\n')
+            m.assert_dedicated_jar(root/'wow-ui-sync.server.jar','wow-ui-sync.service',[root])
+    def test_known_sync_unmatched_quote_fails_with_unit_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'wow-ui-sync-100.service').write_text('[Service]\nExecStart=/usr/bin/java -jar "unfinished\n')
+            with self.assertRaisesRegex(ValueError,'wow-ui-sync-100.service'):
+                m.assert_dedicated_jar(root/'new.jar','wow-ui-sync.service',[root])
+    def test_shared_jar_is_still_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);jar=root/'wow-ui-sync.server.jar'
+            (root/'existing.service').write_text(f'[Service]\nExecStart=/usr/bin/java -jar "{jar}" run\n')
+            with self.assertRaisesRegex(ValueError,'JAR is shared'):
+                m.assert_dedicated_jar(jar,'new.service',[root])
+    def test_continued_command_still_detects_shared_jar(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);jar=root/'space name'/'wow-ui-sync.server.jar'
+            (root/'existing.service').write_text('[Service]\nExecStart=/usr/bin/java '+chr(92)+'\n  -jar "'+str(jar)+'" run\n')
+            with self.assertRaisesRegex(ValueError,'JAR is shared'):
+                m.assert_dedicated_jar(jar,'new.service',[root])
+    def test_selected_unit_is_excluded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);jar=root/'wow-ui-sync.server.jar'
+            (root/'selected.service').write_text(f'[Service]\nExecStart=/usr/bin/java -jar "{jar}" run\n')
+            m.assert_dedicated_jar(jar,'selected.service',[root])
+    def test_broken_unrelated_symlink_does_not_abort(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'unrelated.service').symlink_to(root/'missing')
+            m.assert_dedicated_jar(root/'new.jar','new.service',[root])
+
+
+
+class InstallerDefaultsTests(unittest.TestCase):
+    def test_route_primary_ip_wins_over_loopback(self):
+        import subprocess
+        result=subprocess.CompletedProcess([],0,stdout='[{"prefsrc":"203.0.113.25","dev":"eno1"}]',stderr='')
+        with patch.object(m.shutil,'which',return_value='/usr/sbin/ip'),patch.object(m.subprocess,'run',return_value=result),patch.object(m.socket,'socket') as socket_factory:
+            self.assertEqual('203.0.113.25',m.detect_primary_ip());socket_factory.assert_not_called()
+    def test_loopback_route_is_never_a_default(self):
+        import subprocess
+        result=subprocess.CompletedProcess([],0,stdout='[{"prefsrc":"127.0.0.1"}]',stderr='')
+        with patch.object(m.shutil,'which',return_value='/usr/sbin/ip'),patch.object(m.subprocess,'run',return_value=result),patch.object(m.socket,'socket',side_effect=OSError('no network')):
+            self.assertIsNone(m.detect_primary_ip())
+    def test_socket_fallback_detects_assigned_ip(self):
+        from unittest.mock import MagicMock
+        sock=MagicMock();sock.__enter__.return_value=sock;sock.getsockname.return_value=('203.0.113.25',40000)
+        with patch.object(m.shutil,'which',return_value=None),patch.object(m.socket,'socket',return_value=sock):
+            self.assertEqual('203.0.113.25',m.detect_primary_ip())
+            sock.connect.assert_called_once_with(('1.1.1.1',80))
+    def test_detection_failure_never_uses_localhost(self):
+        with patch.object(m.shutil,'which',return_value=None),patch.object(m.socket,'socket',side_effect=OSError('offline')):
+            self.assertIsNone(m.detect_primary_ip())
+    def test_sudo_invoking_user_is_default(self):
+        with patch.dict(m.os.environ,{'SUDO_USER':'ubuntu'}):
+            self.assertEqual('ubuntu',m.default_service_user())
+    def test_non_sudo_user_is_default(self):
+        from types import SimpleNamespace
+        with patch.dict(m.os.environ,{},clear=True),patch.object(m.pwd,'getpwuid',return_value=SimpleNamespace(pw_name='detecteduser')):
+            self.assertEqual('detecteduser',m.default_service_user())
+    def test_invalid_addresses_rejected_as_detected_defaults(self):
+        for address in ['127.0.0.1','::1','0.0.0.0','::','224.0.0.1','169.254.1.1','not-an-ip']:
+            self.assertFalse(m.usable_bind_ip(address))
+        self.assertTrue(m.usable_bind_ip('203.0.113.25'))
+
 if __name__=='__main__':unittest.main()

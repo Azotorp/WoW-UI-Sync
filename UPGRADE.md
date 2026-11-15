@@ -17,7 +17,7 @@ Use:
 | Prompt | Test value |
 |---|---|
 | Service name | `wow-ui-sync-1.2` |
-| Bind address | `127.0.0.1` for local-only; your desired interface or `0.0.0.0` for a remote client |
+| Bind address | Automatically detected primary interface IP; override if needed. No localhost fallback. |
 | Port | `2027`, or another unused port distinct from production |
 | JAR path | The **new test directory's** `server/wow-ui-sync.server.jar` |
 | Data directory | That JAR directory's `data`, or another **independent empty** directory/partition |
@@ -36,6 +36,10 @@ sudo systemctl status wow-ui-sync.service --no-pager
 The last command is read-only confirmation that production remains available. After successful service installation, setup offers **Allow TCP <selected-port> in UFW?** for a non-loopback bind and an already-active UFW firewall. Type `YES` to add only that TCP-port allow rule; declining leaves rules unchanged. It checks UFW status afterward and does not enable UFW, reset rules, reload it, or change SSH rules. Existing matching allow rules are not duplicated; conflicting deny rules require manual review. Inactive/missing UFW is left alone. Router/provider firewalls still require separate configuration. If needed manually later: `sudo ufw allow 2027/tcp` (substitute the selected port).
 
 Extract the **client into its own directory**, retaining its separate `wow-ui-sync-data` folder. Run `java -jar client/wow-ui-sync.client.jar`, create a connection to the test host on port 2027, compare the printed test TLS fingerprint, and log in with the test root account. Test a copied WoW installation, then select a few folders/data entries and review changes before transferring. Never point two live servers at the same data directory, including via symlink or copied configuration.
+
+## Installer follow-up fixes
+
+Setup now defaults to service `wow-ui-sync`, the resolved Java executable and the detected primary interface IP. The user still defaults to the invoking OS user (`SUDO_USER` when using sudo), and the group follows the selected user. No external public-IP lookup is used: the address comes from the OS route/interface, so it is assigned locally and can be bound. If detection fails, enter the address explicitly. Unrelated system-unit quotation syntax no longer aborts the JAR-overlap check; ambiguous sync units and actual shared JARs still fail safely.
 
 ## Installer firewall update
 

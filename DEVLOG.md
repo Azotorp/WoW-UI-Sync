@@ -1,3 +1,7 @@
+## Installer quotation and default fixes
+
+Fixed unrelated-unit unmatched quote failure during shared-JAR checks. Setup defaults to the resolved Java path, wow-ui-sync service, detected primary interface IP, port 2027 and invoking user. All 33 helper tests pass; Java binaries unchanged.
+
 ## Installer follow-up: optional UFW port prompt
 
 Added an explicit post-install TCP-port allow prompt for active UFW and remote bind addresses. Existing Java binaries remain unchanged. Twenty service/helper tests pass, including nine firewall-policy and result-verification cases. No live firewall changes were performed.
