@@ -30,3 +30,5 @@ Status-fix validation: Windows and Ubuntu CI run 43681147631 passed, including t
 Only selected add-on folders absent locally are removed from the selected server account/profile. SavedVariables are retained; this does not purge unrelated WTF data. Unchecked server folders are kept. Canceling leaves the server unchanged. The default selection remains Keep. Local files, backups and the separate 1.0 service are unaffected. If those were the only differences, the next status check becomes Up to date.
 
 This is a client-only addition using the existing reviewed Push protocol. Replace/rerun only the client JAR; no server JAR replacement, restart, installation or migration is required. All earlier backup/scan/status fixes are included.
+
+Server-purge validation: Windows and Ubuntu CI run 44030138368 passed, including the cancellation/commit regression and Windows client launch.
