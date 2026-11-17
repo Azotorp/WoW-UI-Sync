@@ -923,3 +923,7 @@ All open questions are answered and the design is declared complete. Everything 
 ## 1.2 status consistency follow-up
 
 General WTF differences are labeled separately because those files are opt-in by default. No-op Push messages describe only the chosen scope. No synthetic baseline or blanket Up to date state hides differences. Client-only update; server unchanged.
+
+## Server-only add-on purge
+
+Expose destination-only folders in Push using the existing explicit folder-removal plan. Add per-folder selection, select-all/keep-all controls and server deletion wording. Cancel and deletion-only commit are verified end to end; SavedVariables remain intact. Client-only update.

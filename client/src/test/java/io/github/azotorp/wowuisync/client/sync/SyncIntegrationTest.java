@@ -216,6 +216,30 @@ class SyncIntegrationTest {
             assertTrue(Files.isDirectory(freshFolder.resolve("Interface")));assertTrue(Files.isDirectory(freshFolder.resolve("WTF")));
             assertEquals(freshSource.fingerprint(),freshOps.scan(freshFlavor,null,()->false).manifest().fingerprint());
             assertThrows(Exception.class,()->freshOps.pushBegin(c1,root,freshFlavor,freshScan,freshSource.fingerprint()));
+            // Explicit server-only purge: kept by default, cancel leaves server intact, commit deletes only reviewed files.
+            io.github.azotorp.wowuisync.client.local.FileOps.deleteTree(f1.resolve("Interface/AddOns/Details"));
+            var purgeLocal=ops1.scan(fl1,null,()->false);
+            var purgeRemote=ops1.pullSource(c1,root,fl1);
+            var kept=io.github.azotorp.wowuisync.common.addon.PullPlanner.target(purgeLocal.manifest(),purgeRemote.manifest(),
+                    new PullSelection(List.of("WeakAuras","WeakAuras_Options"),List.of(),false),PullMode.KEEP);
+            assertEquals(purgeRemote.fingerprint(),kept.fingerprint());
+            var purgeTarget=io.github.azotorp.wowuisync.common.addon.PullPlanner.target(purgeLocal.manifest(),purgeRemote.manifest(),
+                    new PullSelection(List.of("WeakAuras","WeakAuras_Options"),List.of(),false,List.of("Details"),List.of()),PullMode.KEEP);
+            var purgeScan=new LocalScan(f1,purgeTarget,purgeLocal.files(),List.of(),List.of());
+            var purgeNeed=ops1.pushBegin(c1,root,fl1,purgeScan,purgeRemote.fingerprint());
+            assertEquals(2,purgeNeed.removedFiles().size());
+            assertTrue(purgeNeed.removedFiles().stream().allMatch(p->p.startsWith("Interface/AddOns/Details/")));
+            assertTrue(purgeNeed.missingHashes().isEmpty());assertTrue(purgeNeed.newFiles().isEmpty());assertTrue(purgeNeed.editedFiles().isEmpty());
+            ops1.pushCancel(c1,purgeNeed);
+            assertEquals(purgeRemote.fingerprint(),ops1.pullSource(c1,root,fl1).fingerprint());
+            purgeNeed=ops1.pushBegin(c1,root,fl1,purgeScan,purgeRemote.fingerprint());
+            ops1.pushUpload(c1,root,fl1,purgeScan,purgeNeed,new TransferControl(),SINK);
+            var afterPurge=ops1.pullSource(c1,root,fl1);
+            assertNull(afterPurge.manifest().get("Interface/AddOns/Details/Details.toc"));
+            assertNotNull(afterPurge.manifest().get("WTF/Account/ACC/SavedVariables/Details.lua"));
+            assertNotNull(afterPurge.manifest().get("Interface/AddOns/WeakAuras/WeakAuras.toc"));
+            assertEquals(purgeLocal.manifest().fingerprint(),afterPurge.fingerprint());
+            assertEquals(SyncStatus.Kind.UP_TO_DATE,ops1.status(c1,root,fl1,ops1.scan(fl1,null,()->false)).kind());
             assertNotNull(login);
             c1.close();
             c2.close();

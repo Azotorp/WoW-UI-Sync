@@ -17,7 +17,7 @@ public final class PullSelectionDialog extends JDialog {
         Entry(AddonCatalog.Row row) { this.row=row; addon=!row.dataOnly(); }
     }
     private final List<Entry> addons=new ArrayList<>(), orphans=new ArrayList<>();
-    private final List<String> localOnly=new ArrayList<>();
+    private final List<String> destinationOnly=new ArrayList<>();
     private final Set<String> removals=new HashSet<>();
     private final JCheckBox general=new JCheckBox("General WTF settings (excludes all SavedVariables)",false);
     private final JCheckBox bi=new JCheckBox("Back up Interface",true), bw=new JCheckBox("Back up WTF",true);
@@ -47,25 +47,26 @@ public final class PullSelectionDialog extends JDialog {
         this.push=push;source=src.manifest();local=scan.manifest();this.localTocs=localTocs;
         sourceTocs=parse(src.tocs());catalog=new AddonCatalog(source,sourceTocs);
         for(var row:catalog.rows())(row.dataOnly()?orphans:addons).add(new Entry(row));
-        Set<String> server=new HashSet<>();AddonGrouper.folders(source).forEach(f->server.add(AddonCatalog.lc(f)));
-        if(!push) for(String f:AddonGrouper.folders(local))if(!server.contains(AddonCatalog.lc(f)))localOnly.add(f);
+        destinationOnly.addAll(destinationOnlyFolders(source,local));
         JPanel content=new JPanel();content.setLayout(new BoxLayout(content,BoxLayout.Y_AXIS));
-        content.add(new JLabel(push?"Select local folders and data to upload; unrelated server content is preserved.":"Server add-ons available to pull — files and data are independent."));
+        content.add(new JLabel(push?"Select local folders and data to upload. Server-only folders are kept unless selected for purge below.":"Server add-ons available to pull — files and data are independent."));
         content.add(section(addons,260));
         if(!orphans.isEmpty()) {content.add(new JLabel("Orphaned / shared SavedVariables — data only; hover for all locations and provenance"));content.add(section(orphans,130));}
-        if(!localOnly.isEmpty()) {
-            content.add(new JLabel("Local-only add-ons absent from server — Keep by default"));
+        if(!destinationOnly.isEmpty()) {
+            content.add(new JLabel(push ? "Server-only add-ons missing on this PC — select folders to purge from server"
+                    : "Local-only add-ons absent from server — Keep by default"));
+            if(push)content.add(new JLabel("Purging folders keeps their SavedVariables. Unchecked folders are kept. Exact deletions are reviewed next."));
             AbstractTableModel m=new AbstractTableModel(){
-                public int getRowCount(){return localOnly.size();}public int getColumnCount(){return 2;}
-                public String getColumnName(int c){return c==0?"Remove (unchecked = Keep)":"Folder";}
+                public int getRowCount(){return destinationOnly.size();}public int getColumnCount(){return 2;}
+                public String getColumnName(int c){return c==0?(push?"Purge from server (unchecked = Keep)":"Remove (unchecked = Keep)"):"Folder";}
                 public Class<?> getColumnClass(int c){return c==0?Boolean.class:String.class;}
                 public boolean isCellEditable(int row,int c){return c==0;}
-                public Object getValueAt(int row,int c){return c==0?removals.contains(localOnly.get(row)):localOnly.get(row);}
-                public void setValueAt(Object v,int row,int c){if(Boolean.TRUE.equals(v))removals.add(localOnly.get(row));else removals.remove(localOnly.get(row));fireTableRowsUpdated(row,row);updateSummary();}
+                public Object getValueAt(int row,int c){return c==0?removals.contains(destinationOnly.get(row)):destinationOnly.get(row);}
+                public void setValueAt(Object v,int row,int c){if(Boolean.TRUE.equals(v))removals.add(destinationOnly.get(row));else removals.remove(destinationOnly.get(row));fireTableRowsUpdated(row,row);updateSummary();}
             };
             JTable table=new JTable(m);table.setAutoCreateRowSorter(true);JScrollPane sp=new JScrollPane(table);sp.setPreferredSize(new Dimension(1050,100));content.add(sp);
             JPanel quick=new JPanel(new FlowLayout(FlowLayout.LEFT));
-            for(boolean remove:new boolean[]{false,true}){JButton b=new JButton(remove?"Remove all local-only":"Keep all local-only");b.addActionListener(e->{removals.clear();if(remove)removals.addAll(localOnly);m.fireTableDataChanged();updateSummary();});quick.add(b);}content.add(quick);
+            for(boolean remove:new boolean[]{false,true}){JButton b=new JButton(push?(remove?"Purge all server-only add-ons":"Keep all server-only add-ons"):(remove?"Remove all local-only":"Keep all local-only"));b.addActionListener(e->{removals.clear();if(remove)removals.addAll(destinationOnly);m.fireTableDataChanged();updateSummary();});quick.add(b);}content.add(quick);
         }
         JPanel options=new JPanel(new FlowLayout(FlowLayout.LEFT));options.add(general);if(!push){options.add(bi);options.add(bw);}content.add(options);
         general.addActionListener(e->updateSummary());
@@ -94,8 +95,13 @@ public final class PullSelectionDialog extends JDialog {
         JPanel panel=new JPanel(new BorderLayout());panel.add(scroll,BorderLayout.CENTER);JPanel quick=new JPanel(new FlowLayout(FlowLayout.LEFT));
         for(String action:List.of("All files","No files","All data","No data")){JButton b=new JButton(action);b.addActionListener(e->{for(Entry x:entries){if(action.endsWith("files")&&!x.row.dataOnly())x.addon=action.startsWith("All");if(action.endsWith("data"))x.data=action.startsWith("All");}model.fireTableDataChanged();updateSummary();});quick.add(b);}JButton details=new JButton("Inspect selected row");details.addActionListener(e->{int view=table.getSelectedRow();if(view<0)return;var row=entries.get(table.convertRowIndexToModel(view)).row;ReviewDialog.info(this,"Selection details",row.name(),new String[]{"Family evidence","Dependencies","Data locations"},List.of(row.family().source()),row.dependencies().isEmpty()?List.of():Arrays.asList(row.dependencies().split(", ")),row.locations());});quick.add(details);panel.add(quick,BorderLayout.SOUTH);return panel;
     }
+    /** Direction-independent: source is this PC on Push and the server on Pull. */
+    static List<String> destinationOnlyFolders(Manifest source, Manifest destination) {
+        Set<String> present=new HashSet<>();AddonGrouper.folders(source).forEach(f->present.add(AddonCatalog.lc(f)));
+        return AddonGrouper.folders(destination).stream().filter(f->!present.contains(AddonCatalog.lc(f))).toList();
+    }
     private PullSelection selection(){List<String>a=new ArrayList<>(),d=new ArrayList<>(),o=new ArrayList<>();for(Entry e:addons){if(e.addon)a.add(e.row.id());if(e.data)d.add(e.row.id());}for(Entry e:orphans)if(e.data)o.add(e.row.id());return new PullSelection(a,d,general.isSelected(),new ArrayList<>(removals),o);}
-    private void updateSummary(){var diff=PullPlanner.plan(source,local,selection(),sourceTocs,localTocs);summary.setText(diff.added().size()+" creates, "+diff.edited().size()+" updates, "+diff.removed().size()+" deletions; unchecked data is skipped.");}
+    private void updateSummary(){var diff=PullPlanner.plan(source,local,selection(),sourceTocs,localTocs);summary.setText(diff.added().size()+" creates, "+diff.edited().size()+" updates, "+diff.removed().size()+(push?" server file deletions; unchecked data is skipped.":" deletions; unchecked data is skipped."));}
     public static Map<String,TocInfo> parse(Map<String,byte[]> bytes){Map<String,TocInfo> out=new HashMap<>();bytes.forEach((f,b)->out.put(AddonCatalog.lc(f),TocParser.parse(f,b)));return out;}
     public static Choice show(Window owner,String name,SyncOps.PullSource src,LocalScan local){return show(owner,name,src,local,Map.of(),false);}
     public static Choice show(Window owner,String name,SyncOps.PullSource src,LocalScan local,Map<String,TocInfo> localTocs,boolean push){return show(owner,name,src,local,localTocs,push,0,0);}

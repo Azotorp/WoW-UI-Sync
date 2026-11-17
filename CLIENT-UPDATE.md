@@ -1,4 +1,4 @@
-# Client-only status update — 1.2.0-alpha
+# Client-only server purge update — 1.2.0-alpha
 
 1. Let your current upload/pull finish, then close the client.
 2. Copy `client/wow-ui-sync.client.jar` from this ZIP over the client JAR in the **same directory you already run it from**. Keep the old filename if necessary.
@@ -20,3 +20,13 @@ Linux validation: 36 Java tests passed, one Windows-only native-copy test skippe
 Status follow-up: full-file status previously recommended Push when only opt-in general WTF settings differed, while the default Push selection correctly transferred nothing. Status now says “Add-ons and data match; general WTF settings differ” for that exact case, retaining Show details and the real baseline. General settings remain opt-in. Changes to add-ons, account/character SavedVariables, or server-only add-on content still show real differences. A no-op Push now says only the selected content matches; it no longer claims this entire PC matches. This package includes the earlier scan/progress and native backup fixes.
 
 Status-fix validation: Windows and Ubuntu CI run 43681147631 passed, including the new regression tests and Windows GUI launch. No server update/restart is required.
+
+## Purge old server-only add-ons
+
+1. Click Push and scroll to “Server-only add-ons missing on this PC”.
+2. Check the folders you want removed, or click “Purge all server-only add-ons”. That button only selects rows; it does not delete anything yet. “Keep all server-only add-ons” clears the selection.
+3. Click “Preview exact changes”. Review the server file deletions, then confirm the Push.
+
+Only selected add-on folders absent locally are removed from the selected server account/profile. SavedVariables are retained; this does not purge unrelated WTF data. Unchecked server folders are kept. Canceling leaves the server unchanged. The default selection remains Keep. Local files, backups and the separate 1.0 service are unaffected. If those were the only differences, the next status check becomes Up to date.
+
+This is a client-only addition using the existing reviewed Push protocol. Replace/rerun only the client JAR; no server JAR replacement, restart, installation or migration is required. All earlier backup/scan/status fixes are included.

@@ -2,6 +2,12 @@
 
 Date: 2026-11-14 (America/Vancouver). Baseline: main `4076848`, restored 1.0.0 implementation. New branch: `feature/1.2.0-alpha-sync-redesign`. No production service, database, keys, main branch or published release was modified.
 
+## Server-only add-on purge follow-up
+
+Push now exposes destination-only add-on folders for explicit removal, with individual checkboxes, Keep all/Purge all selectors and exact deletion counts before the existing server review/commit. Default Keep and Pull behavior are retained. Candidates compare folder names case-insensitively and exclude SavedVariables. Purge applies only to the selected server account/profile; it does not remove unrelated WTF files or local backups. Source-present folders cannot be selected as orphan purge candidates. No common/server production code, protocol or schema change.
+
+Regression coverage: case-insensitive candidate discovery; data-only entries never become folder purge candidates; real loopback TLS deletion-only Push after removing an add-on locally; default selection keeps it; exact review lists only its two server files; cancel leaves the server fingerprint unchanged; confirmed Push removes that folder while keeping its SavedVariables and unrelated add-on files; status becomes Up to date. The transfer needs no new blob uploads. Local Linux Maven package: 39 Java tests, 37 passed, two documented skips (optional key fixtures and native Windows test), zero failures/errors.
+
 ## Status/selection consistency follow-up
 
 Client-only fix: settings-only differences no longer recommend a default Push that excludes those settings. The badge identifies general WTF differences, keeps Show details, and leaves actual baseline fingerprints intact. Exact manifest matches retain the green Up to date badge. Add-on and SavedVariables differences are not suppressed. The no-op Push message refers only to selected content. Comparison reuses the validated current base manifest where possible and fetches the remote manifest only when needed; no extra content hashing or server changes.

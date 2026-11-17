@@ -5,6 +5,16 @@ import javax.swing.*;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 class SelectionTableTest {
+    @Test void serverOnlyPurgeCandidatesExcludePresentFoldersAndSavedVariables() {
+        var local=new io.github.azotorp.wowuisync.common.manifest.Manifest(List.of(
+                new io.github.azotorp.wowuisync.common.manifest.ManifestEntry("Interface/AddOns/current/current.toc",1,"a".repeat(64)),
+                new io.github.azotorp.wowuisync.common.manifest.ManifestEntry("WTF/Account/ACC/SavedVariables/Old.lua",1,"b".repeat(64))));
+        var remote=new io.github.azotorp.wowuisync.common.manifest.Manifest(List.of(
+                new io.github.azotorp.wowuisync.common.manifest.ManifestEntry("Interface/AddOns/Current/Current.toc",1,"a".repeat(64)),
+                new io.github.azotorp.wowuisync.common.manifest.ManifestEntry("Interface/AddOns/Old/Old.toc",1,"b".repeat(64))));
+        assertEquals(List.of("Old"),PullSelectionDialog.destinationOnlyFolders(local,remote));
+        assertEquals(List.of(),PullSelectionDialog.destinationOnlyFolders(remote,local));
+    }
     @Test void numericSortingAndDataOnlyControls() throws Exception {
         SwingUtilities.invokeAndWait(()->{
             var family=new AddonCatalog.Family("","");

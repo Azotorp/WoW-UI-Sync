@@ -182,13 +182,13 @@ final class SyncController {
         if (nothing && need.missingHashes().isEmpty() && s.server().currentFingerprint() != null) {
             ops.pushCancel(c.conn(), need);
             done("Nothing to push.");
-            Dialogs.info(w, "Nothing to push: the selected content already matches the server.\n\nUnselected content can still differ. Use Show details to inspect differences; general WTF settings are unchecked by default.");
+            Dialogs.info(w, "Nothing to push: the selected content already matches the server.\n\nUnselected content can still differ. Use Show details to inspect differences.\nTo remove old server-only add-ons, select them in Push's purge list. General WTF settings are unchecked by default.");
             refreshStatus();
             return;
         }
         boolean own = isOwnAccount(c.account());
         String headline = own
-                ? "Push to " + c.account().username() + " (" + c.flavor().displayName() + "): selected content updates the server; unrelated content is preserved."
+                ? "Push to " + c.account().username() + " (" + c.flavor().displayName() + "): selected content updates the server; selected server-only add-ons are purged; other content is preserved."
                 : "You are pushing to " + c.account().username() + "'s setup, not your own. Their server copy (" + c.flavor().displayName()
                 + ") will receive the selected changes.";
         String footer = "Upload: " + Sizes.human(need.uploadBytes()) + " (" + need.missingHashes().size() + " files the server does not have yet)."

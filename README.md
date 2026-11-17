@@ -50,7 +50,7 @@ Downloads stage before live writes. Changed local files or server manifests afte
 
 ## Client scan/progress update
 
-The `WoW-UI-Sync-Client-1.2.0-alpha-statusfix.zip` follow-up updates only the client. Finish any current transfer, close the client, replace its JAR in the **same directory**, preserve the adjacent `wow-ui-sync-data` folder, and reopen it. Existing completed scan-cache rows remain valid; running from a new directory without that folder starts a cold cache. No server JAR replacement, service restart or data migration is needed. See CLIENT-UPDATE.md.
+The `WoW-UI-Sync-Client-1.2.0-alpha-serverpurge.zip` follow-up updates only the client. Finish any current transfer, close the client, replace its JAR in the **same directory**, preserve the adjacent `wow-ui-sync-data` folder, and reopen it. Existing completed scan-cache rows remain valid; running from a new directory without that folder starts a cold cache. No server JAR replacement, service restart or data migration is needed. See CLIENT-UPDATE.md.
 
 ## Scan cache and progress
 
@@ -70,3 +70,5 @@ Build outputs are `dist/wow-ui-sync-client.jar` and `dist/wow-ui-sync-server.jar
 See [TEST-REPORT.md](TEST-REPORT.md) for measured Linux results and explicit platform/systemd verification limits. [DESIGN-1.2.md](DESIGN-1.2.md) supersedes conflicting 1.0 sync/backup/grouping design details; `DESIGN.md` remains the historical foundation. The separate browse/discovery/exclusions refactor described in `CLIENT_REFACTOR_PLAN.md` is not part of this alpha's implementation.
 
 GPL v3; see LICENSE. Not affiliated with or endorsed by Blizzard Entertainment.
+
+Push offers a server-only add-on purge list. Choose folders or Purge all server-only add-ons, then preview exact file deletions before confirming. Defaults keep server-only folders; SavedVariables remain intact. See CLIENT-UPDATE.md.
